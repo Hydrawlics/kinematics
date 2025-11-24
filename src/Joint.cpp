@@ -20,9 +20,23 @@ Joint::Joint(const JointConfig &config) {
   minPistonLength = config.minPistonLength;
   maxPistonLength = config.maxPistonLength;
 
+  /** Store inversion flags */
+  invertPistonLengthRelationship = config.invertPistonLengthRelationship;
+  invertEncoderDirection = config.invertEncoderDirection;
+
   /** Calculate angle boundaries from piston length constraints and geometry */
-  angle_min_deg = calculateJointAngle(minPistonLength);
-  angle_max_deg = calculateJointAngle(maxPistonLength);
+  float angle1, angle2;
+  if (invertPistonLengthRelationship) {
+    // Swap: min piston length corresponds to max angle, and vice versa
+    angle1 = calculateJointAngle(maxPistonLength);
+    angle2 = calculateJointAngle(minPistonLength);
+  } else {
+    angle1 = calculateJointAngle(minPistonLength);
+    angle2 = calculateJointAngle(maxPistonLength);
+  }
+  // Ensure angle_min < angle_max regardless of geometry
+  angle_min_deg = min(angle1, angle2);
+  angle_max_deg = max(angle1, angle2);
 
   targetAngleDeg = (angle_min_deg + angle_max_deg) * 0.5f; // Start mid position
 }
@@ -38,9 +52,12 @@ float Joint::calculatePistonLength(const float jointAngle) const {
   // pistonEndAngle: angle to end attachment (in joint's local space)
   // jointAngle: current rotation of the joint (in parent's space)
 
-  // The end attachment's angle in parent space is: pistonEndAngle + jointAngle
-  // The triangle angle at the joint is the difference between the two attachment angles
-  const float triangleAngle = (pistonEndAngle + jointAngle) - pistonBaseAngleInParentSpace;
+  // If inverted, negate jointAngle to flip the angle-length relationship
+  const float effectiveJointAngle = invertPistonLengthRelationship ? -jointAngle : jointAngle;
+
+  // The end attachment's angle in parent space is: pistonEndAngle + effectiveJointAngle
+  // The triangle angle at the joint is the absolute difference between the two attachment angles
+  const float triangleAngle = abs((pistonEndAngle + effectiveJointAngle) - pistonBaseAngleInParentSpace);
   const float triangleAngleRad = triangleAngle * DegToRad;
 
   // Use law of cosines: c² = a² + b² - 2ab*cos(C)
@@ -68,9 +85,11 @@ float Joint::calculateJointAngle(const float pistonLength) const {
   const float triangleAngle = triangleAngleRad * RadToDeg;
 
   // Convert triangle angle back to joint angle
-  // triangleAngle = (pistonEndAngle + jointAngle) - pistonBaseAngleInParentSpace
-  // jointAngle = triangleAngle + pistonBaseAngleInParentSpace - pistonEndAngle
-  const float jointAngle = triangleAngle + pistonBaseAngleInParentSpace - pistonEndAngle;
+  // Since forward uses: triangleAngle = abs((pistonEndAngle + jointAngle) - pistonBaseAngleInParentSpace)
+  // We need to account for both possible cases. Based on typical joint geometry,
+  // use the case where jointAngle < pistonBaseAngleInParentSpace:
+  // jointAngle = pistonBaseAngleInParentSpace - triangleAngle - pistonEndAngle
+  const float jointAngle = pistonBaseAngleInParentSpace - triangleAngle - pistonEndAngle;
 
   return jointAngle;
 }
@@ -82,7 +101,13 @@ void Joint::update() {
   const long deltaTime = millis() - lastUpdate;
 
   // --- Step 1: Read current angle from rotary encoder ---
-  const float circularAngle = re->getAngleDeg();
+  float circularAngle = re->getAngleDeg();
+
+  // Invert encoder direction if sensor is mounted backwards
+  if (invertEncoderDirection) {
+    circularAngle = 360.0f - circularAngle;
+  }
+
   // the zero point should align with the joint zero point,
   // however, we need to fix so that values between 360 and 180 are negatives:
   // 359 => 359-360 == -1

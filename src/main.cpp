@@ -20,7 +20,7 @@
 
 // --- I/O declerations ---
 constexpr uint8_t LCD_ADDR = 0x27; // LCD setup
-constexpr uint8_t STATUS_LED = 8; // 8 has PWM, fancy fading light
+constexpr uint8_t STATUS_LED = 13; // 13 has PWM, fancy fading light, internal led
 constexpr uint8_t CALIBRATION_BUTTON = 2;
 
 constexpr uint8_t PUMP_PIN = 30; // dedicated pump relay pin
@@ -88,25 +88,33 @@ Joint j0({
   J0_VALVE_EXTEND, J0_VALVE_RETRACT, 0,
   0.050, -180,   // base distance and angle
   0.151, 0,   // end distance and angle
-  PISTON1_LEN_MIN, PISTON1_LEN_MAX
+  PISTON1_LEN_MIN, PISTON1_LEN_MAX,
+  false,  // invertPistonLengthRelationship
+  false   // invertEncoderDirection
 });
 Joint j1({
   J1_VALVE_EXTEND, J1_VALVE_RETRACT, 1,
-  0.111, -180,   // base distance and angle
-  0.070, -79.21,   // end distance and angle
-  PISTON1_LEN_MIN, PISTON1_LEN_MAX
+  0.111, 79.21,   // base distance and angle (79.21 because has an offset to the left of straight up that is 79.21)
+  0.070, 0,   // end distance and angle (0 because straight up)
+  PISTON1_LEN_MIN, PISTON1_LEN_MAX,
+  false,  // invertPistonLengthRelationship
+  false   // invertEncoderDirection
 });
 Joint j2({
   J2_VALVE_EXTEND, J2_VALVE_RETRACT, 2,
   0.050, -180,   // base distance and angle
   0.151, 0,   // end distance and angle
-  PISTON1_LEN_MIN, PISTON1_LEN_MAX
+  PISTON1_LEN_MIN, PISTON1_LEN_MAX,
+  false,  // invertPistonLengthRelationship
+  true    // invertEncoderDirection - sensor mounted backwards (CCW for decreasing angle)
 });
 Joint j3({
   J3_VALVE_EXTEND, J3_VALVE_RETRACT, 3,
   0.095, -180,   // base distance and angle
   0.070, 0,   // end distance and angle
-  PISTON1_LEN_MIN, PISTON1_LEN_MAX
+  PISTON1_LEN_MIN, PISTON1_LEN_MAX,
+  false,  // invertPistonLengthRelationship
+  false   // invertEncoderDirection
 });
 Joint* joints[] = { &j0, &j1, &j2, &j3 };
 ArmController armController(&j0, &j1, &j2, &j3);
