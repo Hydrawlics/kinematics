@@ -7,6 +7,7 @@
 #define SELFTEST_ON_START 1          // Run relay polarity test at startup (disable after confirmed)
 #define RELAY_ACTIVE_LOW  true       // Set false if relay board is active-HIGH (depends on module type)
 //#define VERBOSE
+#define SLOW
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -60,6 +61,7 @@ void lcdClearLine(uint8_t row);
 void printFloatOrDash(float v, uint8_t d);
 void lcdFeedback();
 void calibrateBtnInterrupt();
+void getStoredOffsets();
 
 // --- Custom degree symbol for LCD ---
 const uint8_t DEG_CHAR = 0;
@@ -128,6 +130,8 @@ void setup() {
 
   digitalWrite(STATUS_LED, LOW);
 
+  getStoredOffsets();
+
   attachInterrupt(digitalPinToInterrupt(CALIBRATION_BUTTON), calibrateBtnInterrupt, FALLING);
 
   pumpMgr.begin();
@@ -157,7 +161,7 @@ void loop() {
   processCommandQueue();
   updateValves();
 
-  lcdFeedback();
+  //lcdFeedback();
 
 #ifdef VERBOSE
   armController.printPistonLengths();
@@ -187,6 +191,11 @@ void lcdFeedback () {
 //  updateValves()
 //  Called once per loop to update the joint logic and pump state.
 void updateValves() {
+  #ifdef SLOW
+  static float lastRun = 0;
+  if (millis() - lastRun < 1000) return;
+  lastRun = millis();
+  #endif
   bool demand = false;
   for (Joint* j : joints) {
     j->update();
@@ -325,4 +334,11 @@ void selfTestOnce() {
 
   lcd.clear();
 #endif
+}
+
+// Load stored offsets from EEPROM for all joint encoders
+void getStoredOffsets() {
+  for (Joint* j : joints) {
+    j->beginEncoder();
+  }
 }

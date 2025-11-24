@@ -74,6 +74,9 @@ private:
 public:
   explicit Joint(const JointConfig &config);
 
+  // Initializes the rotary encoder and loads offset from EEPROM
+  void beginEncoder();
+
   // Equivalent to Update() in Unity
   // Reads the rotary encoder angle, compares it to the target angle,
   // and adjusts valve outputs using PID control with a deadband

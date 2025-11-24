@@ -27,6 +27,11 @@ Joint::Joint(const JointConfig &config) {
   targetAngleDeg = (angle_min_deg + angle_max_deg) * 0.5f; // Start mid position
 }
 
+// Initializes the rotary encoder and loads offset from EEPROM
+void Joint::beginEncoder() {
+  re->begin();
+}
+
 float Joint::calculatePistonLength(const float jointAngle) const {
   // Calculate the angle in the triangle at the joint pivot
   // pistonBaseAngleInParentSpace: angle to base attachment (in parent's space, doesn't change with joint rotation)
@@ -84,7 +89,7 @@ void Joint::update() {
   const float nonCircAngle = circularAngle > 180 ? (circularAngle - 360) : circularAngle;
   currentAngleDeg = constrain(nonCircAngle, angle_min_deg, angle_max_deg);
 #ifdef VERBOSE
-  Serial.print("currentAngle:");
+  Serial.print("[Joint] currentAngle:");
   Serial.print(currentAngleDeg);
   Serial.print(" targetAngle:");
   Serial.println(targetAngleDeg);
@@ -125,13 +130,13 @@ void Joint::update() {
   lastPID = pidOutput;
 
 #ifdef VERBOSE
-  Serial.print("pid:");
-  Serial.println(pidOutput);
-  Serial.print("integral:");
-  Serial.println(integralError);
-  Serial.print("currentLength:");
-  Serial.println(currentPistonLength, 6);
-  Serial.print("targetLength: ");
+  Serial.print("[Joint] pid:");
+  Serial.print(pidOutput);
+  Serial.print(" integral:");
+  Serial.print(integralError);
+  Serial.print(" currentLength:");
+  Serial.print(currentPistonLength, 6);
+  Serial.print(" targetLength: ");
   Serial.println(targetLength, 6);
 #endif
   previousError = error;
