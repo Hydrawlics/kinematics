@@ -111,9 +111,26 @@ public:
     void setJointAngleTolerance(float tolerance);
 
 #ifndef NATIVE_TEST
+
     // Joint management (Arduino only)
+
+    // the bible of calibrateJoints function:
+    // A function to calibrate all the joints by setting their offsets
+    // This function should only be ran when the arm is in a known location
+    // Each joint's zero position is with the next segment straight forward (..-O-.. type shi)
+
+    // second joint should be rotated in a -90° position
+    // third joint should be straight (0°)
+    //     O2-----O3--- E
+    //     |
+    //     O1       // first joint should be rotated straight up (0°)
+    // |-------|    // base should be rotated towards the middle of the drawing area
+    void calibrateJoints();
+
     void applyJointAngles(const JointAngles& angles);
     bool isAtTarget() const;
+    void printJointAngles();
+    void printPistonLengths();
 #endif
 
     // G-Code processing
@@ -164,6 +181,7 @@ private:
     Joint* j2;
     Joint* j3;
     JointAngles targetAngles;
+    unsigned long lastAnglePrintTime = 0;
 #endif
 
     // Helper functions

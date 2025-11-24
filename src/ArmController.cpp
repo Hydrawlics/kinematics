@@ -409,6 +409,17 @@ JointAngles ArmController::moveToWorldSpace(const Vector3& worldPos) const {
 }
 
 #ifndef NATIVE_TEST
+
+void ArmController::calibrateJoints() {
+    // Run through all the joints and set the offset to the correct thing given the current values of the joint
+
+    j0->setOffsetToCurrentPhysicalRotation(0);
+    j1->setOffsetToCurrentPhysicalRotation(0);
+    j2->setOffsetToCurrentPhysicalRotation(-90);
+    j3->setOffsetToCurrentPhysicalRotation(0);
+
+}
+
 bool ArmController::isAtTarget() const {
     // Loop through all joints and check that they are withing tolerances
     const bool everythingAit = j0->isAtTarget(jointAngleTolerance) &&
@@ -428,5 +439,52 @@ void ArmController::applyJointAngles(const JointAngles& angles) {
     j2->setTargetAngle(angles.joint2Angle);
     j3->setTargetAngle(angles.joint3Angle);
 }
+
+void ArmController::printJointAngles() {
+    // Print raw encoder angles and joint angles at 10Hz (every 100ms)
+    if (millis() - lastAnglePrintTime >= 100) {
+        lastAnglePrintTime = millis();
+
+        // Format: J0: raw(joint), J1: raw(joint), ...
+        Serial.print("J0: ");
+        Serial.print(j0->getRawEncoderAngleDeg(), 1);
+        Serial.print("(");
+        Serial.print(j0->getCurrentAngleDeg(), 1);
+        Serial.print("), J1: ");
+        Serial.print(j1->getRawEncoderAngleDeg(), 1);
+        Serial.print("(");
+        Serial.print(j1->getCurrentAngleDeg(), 1);
+        Serial.print("), J2: ");
+        Serial.print(j2->getRawEncoderAngleDeg(), 1);
+        Serial.print("(");
+        Serial.print(j2->getCurrentAngleDeg(), 1);
+        Serial.print("), J3: ");
+        Serial.print(j3->getRawEncoderAngleDeg(), 1);
+        Serial.print("(");
+        Serial.print(j3->getCurrentAngleDeg(), 1);
+        Serial.println(")");
+    }
+}
+
+void ArmController::printPistonLengths() {
+    // Print calculated piston lengths at 10Hz (every 100ms)
+    static unsigned long lastPistonPrintTime = 0;
+    if (millis() - lastPistonPrintTime >= 100) {
+        lastPistonPrintTime = millis();
+
+        // Format: P0: length, P1: length, ...
+        // Lengths in meters (multiply by 1000 for mm)
+        Serial.print("P0: ");
+        Serial.print(j0->getCurrentPistonLength() * 1000, 1);
+        Serial.print("mm, P1: ");
+        Serial.print(j1->getCurrentPistonLength() * 1000, 1);
+        Serial.print("mm, P2: ");
+        Serial.print(j2->getCurrentPistonLength() * 1000, 1);
+        Serial.print("mm, P3: ");
+        Serial.print(j3->getCurrentPistonLength() * 1000, 1);
+        Serial.println("mm");
+    }
+}
+
 #endif
 

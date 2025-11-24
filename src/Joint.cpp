@@ -77,8 +77,12 @@ void Joint::update() {
   const long deltaTime = millis() - lastUpdate;
 
   // --- Step 1: Read current angle from rotary encoder ---
-  currentAngleDeg = re->getAngleDeg();
-  currentAngleDeg = constrain(currentAngleDeg, angle_min_deg, angle_max_deg);
+  const float circularAngle = re->getAngleDeg();
+  // the zero point should align with the joint zero point,
+  // however, we need to fix so that values between 360 and 180 are negatives:
+  // 359 => 359-360 == -1
+  const float nonCircAngle = circularAngle > 180 ? (circularAngle - 360) : circularAngle;
+  currentAngleDeg = constrain(nonCircAngle, angle_min_deg, angle_max_deg);
 #ifdef VERBOSE
   Serial.print("currentAngle:");
   Serial.print(currentAngleDeg);
@@ -157,6 +161,14 @@ float Joint::getCurrentAngleDeg() const {
   return currentAngleDeg;
 }
 
+float Joint::getRawEncoderAngleDeg() const {
+  return re->getAngleDeg();
+}
+
+float Joint::getCurrentPistonLength() const {
+  return calculatePistonLength(currentAngleDeg);
+}
+
 uint8_t Joint::getExtendDuty() const {
   return v->getLastExtendDuty();
 }
@@ -168,6 +180,25 @@ uint8_t Joint::getRetractDuty() const {
 float Joint::getLastPID() const {
   return lastPID;
 }
+
+
+// Configuration
+void Joint::setOffsetToCurrentPhysicalRotation(const float currentPhysicalRotation) {
+  // Use RAW sensor reading (without offset) to avoid issues with repeated calibration
+  const uint16_t rawReading = re->getRawAngle();
+  const float sensorReading = (static_cast<float>(rawReading) / 4096.0f) * 360.0f;
+
+  // so we calibrate the joints mostly when the joints are straight,
+  // meaning current rotation will be set as zero, however
+  // some of the joints do not have sensor adapters that allow
+  // straightening the joint fully out. Those joints will specify its angle here
+  // e.g. j2 will probably have to be at -90 deg physically while calibrating
+  // (Make sure that the sensors are increasing against the clock)
+
+  // e.g. current read position is 21 deg, the physical position is -90 deg (quarter full rotation with the clock from straight position)
+  // hence -90 deg is what we want to output when the actual sensor reads 21 deg. This is a difference of -111 deg.
+  re->setOffsetDeg(currentPhysicalRotation - sensorReading);
+};
 
 bool Joint::isAtTarget(const float degreeTolerance) const {
   const float angleDiff = abs(targetAngleDeg - currentAngleDeg);

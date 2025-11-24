@@ -5,7 +5,7 @@
 // =====================================================================
 
 #define SELFTEST_ON_START 1          // Run relay polarity test at startup (disable after confirmed)
-#define RELAY_ACTIVE_LOW   true      // Set false if relay board is active-HIGH (depends on module type)
+#define RELAY_ACTIVE_LOW  true       // Set false if relay board is active-HIGH (depends on module type)
 //#define VERBOSE
 
 #include <Arduino.h>
@@ -19,6 +19,8 @@
 
 // --- I/O declerations ---
 constexpr uint8_t LCD_ADDR = 0x27; // LCD setup
+constexpr uint8_t STATUS_LED = 8; // 8 has PWM, fancy fading light
+constexpr uint8_t CALIBRATION_BUTTON = 2;
 
 constexpr uint8_t PUMP_PIN = 30; // dedicated pump relay pin
 
@@ -57,6 +59,7 @@ void selfTestOnce();
 void lcdClearLine(uint8_t row);
 void printFloatOrDash(float v, uint8_t d);
 void lcdFeedback();
+void calibrateBtnInterrupt();
 
 // --- Custom degree symbol for LCD ---
 const uint8_t DEG_CHAR = 0;
@@ -69,6 +72,9 @@ PumpManager pumpMgr;
 GCodeCommandQueue gcodeQueue;
 LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
 
+// Calibration flag - set by interrupt, handled in loop
+volatile bool calibrationRequested = false;
+
 // --- Pump relay (state) ---
 inline void pumpWrite(const bool on) {
   if (RELAY_ACTIVE_LOW) digitalWrite(PUMP_PIN, on ? LOW : HIGH);
@@ -76,29 +82,28 @@ inline void pumpWrite(const bool on) {
 }
 
 //  Instances
-//  Only one joint is active in this prototype.
 Joint j0({
-  J0_VALVE_EXTEND, J0_VALVE_RETRACT, J0_POTMETER,
+  J0_VALVE_EXTEND, J0_VALVE_RETRACT, 0,
   0.050, -180,   // base distance and angle
   0.151, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX
 });
 Joint j1({
-  J1_VALVE_EXTEND, J1_VALVE_RETRACT, J1_POTMETER,
-  0.050, -180,   // base distance and angle
-  0.151, 0,   // end distance and angle
+  J1_VALVE_EXTEND, J1_VALVE_RETRACT, 1,
+  0.111, -180,   // base distance and angle
+  0.070, -79.21,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX
 });
 Joint j2({
-  J2_VALVE_EXTEND, J2_VALVE_RETRACT, J2_POTMETER,
+  J2_VALVE_EXTEND, J2_VALVE_RETRACT, 2,
   0.050, -180,   // base distance and angle
   0.151, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX
 });
 Joint j3({
-  J3_VALVE_EXTEND, J3_VALVE_RETRACT, J3_POTMETER,
-  0.050, -180,   // base distance and angle
-  0.151, 0,   // end distance and angle
+  J3_VALVE_EXTEND, J3_VALVE_RETRACT, 3,
+  0.095, -180,   // base distance and angle
+  0.070, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX
 });
 Joint* joints[] = { &j0, &j1, &j2, &j3 };
@@ -111,11 +116,19 @@ void setup() {
   Serial.setTimeout(500);
   Serial.println("Connected");
 
+  Wire.begin();  // Initialize I2C for rotary encoders and LCD
+
   lcd.init(); lcd.backlight(); lcd.createChar(DEG_CHAR, degreeGlyph);
   lcd.clear(); lcd.setCursor(0,0); lcd.print("Hydrawlics valve test");
   lcd.setCursor(0,1); lcd.print("Angle ctrl ready");
   delay(700); lcd.clear();
 
+  pinMode(STATUS_LED, OUTPUT);
+  pinMode(CALIBRATION_BUTTON, INPUT_PULLUP);
+
+  digitalWrite(STATUS_LED, LOW);
+
+  attachInterrupt(digitalPinToInterrupt(CALIBRATION_BUTTON), calibrateBtnInterrupt, FALLING);
 
   pumpMgr.begin();
   selfTestOnce();  // One-time hardware verification
@@ -123,6 +136,21 @@ void setup() {
 
 //  Loop() - Equivalent to Update() in Unity
 void loop() {
+  // Handle calibration request from interrupt
+  if (calibrationRequested) {
+    calibrationRequested = false;
+
+    armController.calibrateJoints();
+
+    // LED fade indication (~2 seconds)
+    for (int i = 0; i < 1000; i++) {
+      float brightnessAmplitude = abs(sin(i * ((2 * M_PI) / 1000)));
+      analogWrite(STATUS_LED, (int)(brightnessAmplitude * 255));
+      delay(1);
+    }
+    digitalWrite(STATUS_LED, LOW);
+  }
+
   // processes incoming serial communication from the python script running on Raspberry Pi and enqueues into gcodequeue
   serialRead();
   // runs next gcode command in queue if the one executing currently is within tolerances
@@ -130,6 +158,11 @@ void loop() {
   updateValves();
 
   lcdFeedback();
+
+#ifdef VERBOSE
+  armController.printPistonLengths();
+  armController.printJointAngles();
+#endif
 }
 
 
@@ -254,6 +287,11 @@ uint8_t calculateChecksum(String &line) {
 //  LCD for visuals
 void lcdClearLine(uint8_t row) { lcd.setCursor(0,row); for (int i=0;i<16;i++) lcd.print(' '); lcd.setCursor(0,row); }
 void printFloatOrDash(float v, uint8_t d){ if (isnan(v)||isinf(v)) lcd.print("--"); else lcd.print(v,d); }
+
+// Calibration interrupt - just set flag, handle in loop()
+void calibrateBtnInterrupt() {
+  calibrationRequested = true;
+}
 
 //  Self-Test
 //  Verifies relay polarity and pin wiring at startup.

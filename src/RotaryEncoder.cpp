@@ -3,6 +3,7 @@
 
 // Angle register of AS5600 (high byte of angle value)
 #define AS5600_ANGLE_REG 0x0C
+#define REVERSE_DIR
 
 /*
  * Constructor: stores I2C addresses and multiplexer channel.
@@ -61,6 +62,9 @@ uint16_t RotaryEncoder::readRawAngleRegister() {
         // Combine bytes into one 12-bit number
         uint16_t angle = ((uint16_t)highByte << 8) | lowByte;
         angle &= 0x0FFF; // Mask to keep only lowest 12 bits
+        #ifdef REVERSE_DIR
+        angle = 4096 - angle;
+        #endif
         return angle;
     }
 
@@ -80,6 +84,8 @@ uint16_t RotaryEncoder::getRawAngle() {
  */
 float RotaryEncoder::getAngleDeg() {
     uint16_t raw = readRawAngleRegister();
+
+
 
     // Convert raw AS5600 0–4095 value to degrees
     float angle = (static_cast<float>(raw) / 4096.0f) * 360.0f;

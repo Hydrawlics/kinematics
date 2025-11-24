@@ -86,9 +86,14 @@ public:
   void setTargetAngle(float deg);
   float getTargetAngleDeg() const;
   float getCurrentAngleDeg() const;
+  float getRawEncoderAngleDeg() const;
+  float getCurrentPistonLength() const;
   uint8_t getExtendDuty() const;
   uint8_t getRetractDuty() const;
   float getLastPID() const;
+
+  // Configuration
+  void setOffsetToCurrentPhysicalRotation(float currentPhysicalRotation);
 
   bool isAtTarget(float degreeTolerance) const;
 };
