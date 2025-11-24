@@ -6,7 +6,7 @@ constexpr float RadToDeg = 180 / M_PI;
 
 Joint::Joint(const JointConfig &config) {
   v = new Valve(config.pin_valve_e, config.pin_valve_r);
-  re = new RotaryEncoder(config.multiplexI);
+  re = new RotaryEncoder(config.multiplexI, config.invertEncoderDirection);
 
   /** The base attachment in parent segment space */
   pistonBaseDistance = config.pistonBaseDistance;
@@ -25,15 +25,8 @@ Joint::Joint(const JointConfig &config) {
   invertEncoderDirection = config.invertEncoderDirection;
 
   /** Calculate angle boundaries from piston length constraints and geometry */
-  float angle1, angle2;
-  if (invertPistonLengthRelationship) {
-    // Swap: min piston length corresponds to max angle, and vice versa
-    angle1 = calculateJointAngle(maxPistonLength);
-    angle2 = calculateJointAngle(minPistonLength);
-  } else {
-    angle1 = calculateJointAngle(minPistonLength);
-    angle2 = calculateJointAngle(maxPistonLength);
-  }
+  const float angle1 = calculateJointAngle(minPistonLength);
+  const float angle2 = calculateJointAngle(maxPistonLength);
   // Ensure angle_min < angle_max regardless of geometry
   angle_min_deg = min(angle1, angle2);
   angle_max_deg = max(angle1, angle2);
@@ -86,10 +79,23 @@ float Joint::calculateJointAngle(const float pistonLength) const {
 
   // Convert triangle angle back to joint angle
   // Since forward uses: triangleAngle = abs((pistonEndAngle + jointAngle) - pistonBaseAngleInParentSpace)
-  // We need to account for both possible cases. Based on typical joint geometry,
-  // use the case where jointAngle < pistonBaseAngleInParentSpace:
-  // jointAngle = pistonBaseAngleInParentSpace - triangleAngle - pistonEndAngle
-  const float jointAngle = pistonBaseAngleInParentSpace - triangleAngle - pistonEndAngle;
+  // There are two cases depending on the sign of pistonBaseAngleInParentSpace:
+  float jointAngle;
+  if (pistonBaseAngleInParentSpace > 0) {
+    // Case for positive pistonBaseAngleInParentSpace (e.g., J1 with 79.21°)
+    // Formula: jointAngle = pistonBaseAngleInParentSpace - triangleAngle - pistonEndAngle
+    jointAngle = pistonBaseAngleInParentSpace - triangleAngle - pistonEndAngle;
+  } else {
+    // Case for negative pistonBaseAngleInParentSpace (e.g., J0/J2/J3 with -180°)
+    // Formula: jointAngle = triangleAngle + pistonBaseAngleInParentSpace - pistonEndAngle
+    jointAngle = triangleAngle + pistonBaseAngleInParentSpace - pistonEndAngle;
+  }
+
+  // If piston length relationship is inverted, negate the result
+  // This matches the forward calculation which uses -jointAngle when inverted
+  if (invertPistonLengthRelationship) {
+    jointAngle = -jointAngle;
+  }
 
   return jointAngle;
 }
@@ -104,9 +110,9 @@ void Joint::update() {
   float circularAngle = re->getAngleDeg();
 
   // Invert encoder direction if sensor is mounted backwards
-  if (invertEncoderDirection) {
-    circularAngle = 360.0f - circularAngle;
-  }
+  //if (invertEncoderDirection) {
+  //  circularAngle = 360.0f - circularAngle;
+  //}
 
   // the zero point should align with the joint zero point,
   // however, we need to fix so that values between 360 and 180 are negatives:

@@ -10,9 +10,11 @@
  * Offset defaults to zero.
  */
 RotaryEncoder::RotaryEncoder(uint8_t tcaChannel,
+                             bool invertValues,
                              uint8_t tcaAddress,
                              uint8_t as5600Address)
     : _tcaAddr(tcaAddress),
+      _invertValues(invertValues),
       _as5600Addr(as5600Address),
       _channel(tcaChannel),
       _offsetDeg(0.0f)
@@ -65,6 +67,7 @@ uint16_t RotaryEncoder::readRawAngleRegister() {
         // Combine bytes into one 12-bit number
         uint16_t angle = ((uint16_t)highByte << 8) | lowByte;
         angle &= 0x0FFF; // Mask to keep only lowest 12 bits
+        if (_invertValues) angle = 4096 - angle;
         #ifdef REVERSE_DIR
         angle = 4096 - angle;
         #endif

@@ -106,7 +106,7 @@ Joint j2({
   0.151, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
   false,  // invertPistonLengthRelationship
-  true    // invertEncoderDirection - sensor mounted backwards (CCW for decreasing angle)
+  true // invertEncoderDirection - try without encoder inversion
 });
 Joint j3({
   J3_VALVE_EXTEND, J3_VALVE_RETRACT, 3,
