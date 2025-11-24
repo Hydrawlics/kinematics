@@ -115,12 +115,28 @@ float RotaryEncoder::getOffsetDeg() const {
  */
 void RotaryEncoder::saveOffsetToEEPROM(int eepromAddress) const {
     EEPROM.put(eepromAddress, _offsetDeg);
+
+    int markerAddress = eepromAddress + sizeof(_offsetDeg);
+    uint32_t marker = 0xDEADBEEF; // Simple marker to indicate valid data
+    EEPROM.put(markerAddress, marker);
 }
 
 /*
  * Reads a previously saved offset from EEPROM.
- * If EEPROM was never written to, the value may be uninitialized.
+ * Only loads the offset if the validation marker is present.
+ * Otherwise, keeps the default offset (0.0).
  */
 void RotaryEncoder::loadOffsetFromEEPROM(int eepromAddress) {
-    EEPROM.get(eepromAddress, _offsetDeg);
+    // Read the marker first to check if EEPROM has been initialized
+    int markerAddress = eepromAddress + sizeof(_offsetDeg);
+    uint32_t marker;
+    EEPROM.get(markerAddress, marker);
+    
+    // Only load offset if marker is valid (indicates data was previously saved)
+    if (marker == 0xDEADBEEF) {
+        EEPROM.get(eepromAddress, _offsetDeg);
+    } else {
+        // EEPROM was never initialized, keep default offset
+        _offsetDeg = 0.0f;
+    }
 }
