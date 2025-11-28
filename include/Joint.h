@@ -22,6 +22,12 @@ struct JointConfig {
   /** Piston length constraints */
   float minPistonLength;
   float maxPistonLength;
+
+  /** Invert the relationship between angle and piston length */
+  bool invertPistonLengthRelationship;
+
+  /** Invert encoder direction (for sensors mounted backwards) */
+  bool invertEncoderDirection;
 };
 
 // Joint describes the whole joint, including;
@@ -43,6 +49,12 @@ private:
 
   float minPistonLength;
   float maxPistonLength;
+
+  // Invert the piston length relationship
+  bool invertPistonLengthRelationship;
+
+  // Invert encoder direction
+  bool invertEncoderDirection;
 
   // Angle limits (calculated from piston length constraints)
   float angle_min_deg;
@@ -73,6 +85,9 @@ private:
 
 public:
   explicit Joint(const JointConfig &config);
+
+  // Initializes the rotary encoder and loads offset from EEPROM
+  void beginEncoder();
 
   // Equivalent to Update() in Unity
   // Reads the rotary encoder angle, compares it to the target angle,

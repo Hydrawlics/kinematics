@@ -14,6 +14,7 @@ public:
      */
     
     RotaryEncoder(uint8_t tcaChannel,
+                  bool invertValues = false,
                   uint8_t tcaAddress   = 0x70,
                   uint8_t as5600Address = 0x36);
 
@@ -51,6 +52,7 @@ public:
 private:
     // I2C addressing
     uint8_t _tcaAddr;
+    bool _invertValues;
     uint8_t _as5600Addr;
     uint8_t _channel;
 

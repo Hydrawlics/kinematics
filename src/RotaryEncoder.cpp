@@ -10,9 +10,11 @@
  * Offset defaults to zero.
  */
 RotaryEncoder::RotaryEncoder(uint8_t tcaChannel,
+                             bool invertValues,
                              uint8_t tcaAddress,
                              uint8_t as5600Address)
     : _tcaAddr(tcaAddress),
+      _invertValues(invertValues),
       _as5600Addr(as5600Address),
       _channel(tcaChannel),
       _offsetDeg(0.0f)
@@ -21,10 +23,13 @@ RotaryEncoder::RotaryEncoder(uint8_t tcaChannel,
 
 /*
  * Must be called after Wire.begin().
- * Currently does nothing, but can later detect sensor presence.
+ * Loads the offset from EEPROM if previously saved.
  */
 void RotaryEncoder::begin() {
-    // Placeholder for optional startup diagnostics
+    // Load offset from EEPROM
+    // Each channel needs 8 bytes: 4 for float + 4 for marker
+    int eepromAddress = _channel * 8;
+    loadOffsetFromEEPROM(eepromAddress);
 }
 
 /*
@@ -62,6 +67,7 @@ uint16_t RotaryEncoder::readRawAngleRegister() {
         // Combine bytes into one 12-bit number
         uint16_t angle = ((uint16_t)highByte << 8) | lowByte;
         angle &= 0x0FFF; // Mask to keep only lowest 12 bits
+        if (_invertValues) angle = 4096 - angle;
         #ifdef REVERSE_DIR
         angle = 4096 - angle;
         #endif
@@ -102,10 +108,16 @@ float RotaryEncoder::getAngleDeg() {
 
 
 /*
- * Sets the zero-calibration offset.
+ * Sets the zero-calibration offset and saves it to EEPROM.
+ * Each encoder channel gets its own EEPROM space (8 bytes per channel).
  */
 void RotaryEncoder::setOffsetDeg(float offsetDeg) {
     _offsetDeg = offsetDeg;
+
+    // Save to EEPROM automatically
+    // Each channel needs 8 bytes: 4 for float + 4 for marker
+    int eepromAddress = _channel * 8;
+    saveOffsetToEEPROM(eepromAddress);
 }
 
 
@@ -137,7 +149,7 @@ void RotaryEncoder::loadOffsetFromEEPROM(int eepromAddress) {
     int markerAddress = eepromAddress + sizeof(_offsetDeg);
     uint32_t marker;
     EEPROM.get(markerAddress, marker);
-    
+
     // Only load offset if marker is valid (indicates data was previously saved)
     if (marker == 0xDEADBEEF) {
         EEPROM.get(eepromAddress, _offsetDeg);
