@@ -11,7 +11,6 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 
 #include "Joint.h"
 #include "PumpManager.h"
@@ -19,10 +18,13 @@
 #include "GCodeCommandQueue.h"
 
 // --- I/O declerations ---
+#ifdef LCD
+#include <LiquidCrystal_I2C.h>
 constexpr uint8_t LCD_ADDR = 0x27; // LCD setup
+#endif
+
 constexpr uint8_t STATUS_LED = 13; // 13 has PWM, fancy fading light, internal led
 constexpr uint8_t CALIBRATION_BUTTON = 2;
-
 constexpr uint8_t PUMP_PIN = 30; // dedicated pump relay pin
 
 // Joint 0 pins
@@ -57,11 +59,13 @@ void serialRead();
 void processCommandQueue();
 uint8_t calculateChecksum(String &line);
 void selfTestOnce();
-void lcdClearLine(uint8_t row);
 void printFloatOrDash(float v, uint8_t d);
-void lcdFeedback();
 void calibrateBtnInterrupt();
 void getStoredOffsets();
+
+#ifdef LCD
+void lcdClearLine(uint8_t row);
+void lcdFeedback();
 
 // --- Custom degree symbol for LCD ---
 const uint8_t DEG_CHAR = 0;
@@ -69,10 +73,11 @@ byte degreeGlyph[8] = {
   B00110,B01001,B01001,B00110,
   B00000,B00000,B00000,B00000
 };
+LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
+#endif
 
 PumpManager pumpMgr;
 GCodeCommandQueue gcodeQueue;
-LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
 
 // Calibration flag - set by interrupt, handled in loop
 volatile bool calibrationRequested = false;
@@ -84,14 +89,16 @@ inline void pumpWrite(const bool on) {
 }
 
 //  Instances
+// Azimuth joint; Rotates the whole arm around the azimuth angle
 Joint j0({
   J0_VALVE_EXTEND, J0_VALVE_RETRACT, 0,
-  0.050, -180,   // base distance and angle
+  0.050, -180,   // base distance and angle - Defined the same way as j1!
   0.151, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
   false,  // invertPistonLengthRelationship
   false   // invertEncoderDirection
 });
+// Base-arm joint; Lifts the whole arm, first joint in arm
 Joint j1({
   J1_VALVE_EXTEND, J1_VALVE_RETRACT, 1,
   0.111, 79.21,   // base distance and angle (79.21 because has an offset to the left of straight up that is 79.21)
@@ -100,6 +107,7 @@ Joint j1({
   false,  // invertPistonLengthRelationship
   false   // invertEncoderDirection
 });
+// Elbow joint; Topmost joint, elbow up.
 Joint j2({
   J2_VALVE_EXTEND, J2_VALVE_RETRACT, 2,
   0.050, -180,   // base distance and angle
@@ -108,6 +116,7 @@ Joint j2({
   false,  // invertPistonLengthRelationship
   true // invertEncoderDirection - try without encoder inversion
 });
+// End-effector joint; Keeps the end-effector horizontal
 Joint j3({
   J3_VALVE_EXTEND, J3_VALVE_RETRACT, 3,
   0.095, -180,   // base distance and angle
@@ -116,6 +125,7 @@ Joint j3({
   false,  // invertPistonLengthRelationship
   false   // invertEncoderDirection
 });
+
 Joint* joints[] = { &j0, &j1, &j2, &j3 };
 ArmController armController(&j0, &j1, &j2, &j3);
 
@@ -128,10 +138,12 @@ void setup() {
 
   Wire.begin();  // Initialize I2C for rotary encoders and LCD
 
+#ifdef LCD
   lcd.init(); lcd.backlight(); lcd.createChar(DEG_CHAR, degreeGlyph);
   lcd.clear(); lcd.setCursor(0,0); lcd.print("Hydrawlics valve test");
   lcd.setCursor(0,1); lcd.print("Angle ctrl ready");
   delay(700); lcd.clear();
+#endif
 
   pinMode(STATUS_LED, OUTPUT);
   pinMode(CALIBRATION_BUTTON, INPUT_PULLUP);
@@ -179,31 +191,15 @@ void loop() {
 
 
 
-void lcdFeedback () {
-  static unsigned long tLCD = 0;
-  if (millis() - tLCD > 200) {
-    tLCD = millis();
-    const float cur = joints[0]->getCurrentAngleDeg();
-    const float tar = joints[0]->getTargetAngleDeg();
-#ifdef VERBOSE
-    Serial.print("cur:");
-    Serial.println(cur);
-#endif
-    lcdClearLine(0); lcd.print("C:"); printFloatOrDash(cur,1); lcd.write(DEG_CHAR);
-    lcd.setCursor(9,0); lcd.print("p:"); lcd.print(joints[0]->getLastPID());
-    lcdClearLine(1); lcd.print("T:"); printFloatOrDash(tar,1); lcd.write(DEG_CHAR);
-    lcd.setCursor(9,1); lcd.print("P:"); lcd.print(pumpMgr.isOn() ? '1' : '0');
-  }
-}
 
 //  updateValves()
 //  Called once per loop to update the joint logic and pump state.
 void updateValves() {
-  #ifdef SLOW
+#ifdef SLOW
   static float lastRun = 0;
   if (millis() - lastRun < 1000) return;
   lastRun = millis();
-  #endif
+#endif
   bool demand = false;
   for (Joint* j : joints) {
     j->update();
@@ -213,6 +209,8 @@ void updateValves() {
   // if any of the joints have any demand, close the pump cicuit
   pumpMgr.update(demand);
 }
+
+
 // define to emulate slowely filling beyond limit
 //#define TIMEOUT_READY
 
@@ -301,9 +299,28 @@ uint8_t calculateChecksum(String &line) {
   return checksum;
 }
 
+#ifdef LCD
 //  LCD for visuals
 void lcdClearLine(uint8_t row) { lcd.setCursor(0,row); for (int i=0;i<16;i++) lcd.print(' '); lcd.setCursor(0,row); }
 void printFloatOrDash(float v, uint8_t d){ if (isnan(v)||isinf(v)) lcd.print("--"); else lcd.print(v,d); }
+
+void lcdFeedback () {
+  static unsigned long tLCD = 0;
+  if (millis() - tLCD > 200) {
+    tLCD = millis();
+    const float cur = joints[0]->getCurrentAngleDeg();
+    const float tar = joints[0]->getTargetAngleDeg();
+#ifdef VERBOSE
+    Serial.print("cur:");
+    Serial.println(cur);
+#endif
+    lcdClearLine(0); lcd.print("C:"); printFloatOrDash(cur,1); lcd.write(DEG_CHAR);
+    lcd.setCursor(9,0); lcd.print("p:"); lcd.print(joints[0]->getLastPID());
+    lcdClearLine(1); lcd.print("T:"); printFloatOrDash(tar,1); lcd.write(DEG_CHAR);
+    lcd.setCursor(9,1); lcd.print("P:"); lcd.print(pumpMgr.isOn() ? '1' : '0');
+  }
+}
+#endif
 
 // Calibration interrupt - just set flag, handle in loop()
 void calibrateBtnInterrupt() {
@@ -314,9 +331,12 @@ void calibrateBtnInterrupt() {
 //  Verifies relay polarity and pin wiring at startup.
 void selfTestOnce() {
 #if SELFTEST_ON_START
+
+#ifdef LCD
   lcd.clear();
   lcd.setCursor(0,0); lcd.print("Hydrawlics");
   lcd.setCursor(0,1); lcd.print("Pump+Valves check");
+#endif
 
   pinMode(J0_VALVE_EXTEND, OUTPUT); pinMode(J0_VALVE_RETRACT, OUTPUT);
 

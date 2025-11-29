@@ -32,10 +32,15 @@ Joint::Joint(const JointConfig &config) {
   angle_max_deg = max(angle1, angle2);
 
   targetAngleDeg = (angle_min_deg + angle_max_deg) * 0.5f; // Start mid position
+
+  // Cached values used in update function
+  pistonBaseDistance_sq = pistonBaseDistance * pistonBaseDistance;
+  pistonEndDistance_sq = pistonEndDistance * pistonEndDistance;
+  pistonBaseEnd_2ab = 2 * pistonBaseDistance * pistonEndDistance;
 }
 
 // Initializes the rotary encoder and loads offset from EEPROM
-void Joint::beginEncoder() {
+void Joint::beginEncoder() const {
   re->begin();
 }
 
@@ -57,11 +62,14 @@ float Joint::calculatePistonLength(const float jointAngle) const {
   // where c is the piston length, a and b are the attachment distances
   //Debug.Log(_pistonBaseDistance +" "+ _pistonEndDistance);
 
-  const float length = sqrt(
-      pistonBaseDistance * pistonBaseDistance +
-      pistonEndDistance * pistonEndDistance -
-      2 * pistonBaseDistance * pistonEndDistance * cos(triangleAngleRad)
-  );
+  // here we have some calculation we can truncate into cached values
+  // const float length = sqrt(
+  //     pistonBaseDistance * pistonBaseDistance +
+  //     pistonEndDistance * pistonEndDistance -
+  //     2 * pistonBaseDistance * pistonEndDistance * cos(triangleAngleRad)
+  // );
+
+  const float length = sqrt(pistonBaseDistance_sq + pistonEndDistance_sq - pistonBaseEnd_2ab * cos(triangleAngleRad));
 
   return constrain(length, minPistonLength, maxPistonLength);
 }
@@ -127,8 +135,7 @@ void Joint::update() {
 #endif
 
   // --- Step 2: Calculate target piston length for desired angle ---
-  const float targetLength = calculatePistonLength(targetAngleDeg);
-  const float currentPistonLength = calculatePistonLength(currentAngleDeg);
+  const float currentPistonLength = calculatePistonLength(currentAngleDeg); // Changes all the time
 
   // PID control to get desired piston velocity
   float error = targetLength - currentPistonLength;
@@ -186,7 +193,11 @@ void Joint::resetToInit() {
 
 // Accessors for current state and control values
 void Joint::setTargetAngle(const float deg) {
+  // as of now, the only reason we store this is for tolerances in isAtTarget
   targetAngleDeg = constrain(deg, angle_min_deg, angle_max_deg);
+
+  // also calculate the target piston length to cache it
+  targetLength = calculatePistonLength(targetAngleDeg);
 }
 
 float Joint::getTargetAngleDeg() const {
