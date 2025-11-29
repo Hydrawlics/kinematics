@@ -72,14 +72,15 @@ private:
   float targetAngleDeg = 0.0f;
   float currentAngleDeg = NAN;
 
+  // calculated when new target angle deg is given.. there isnt really a reason to store the angle itself
+  float targetLength = 0.0f;
+
   long lastUpdate = 0;
 
   /* Cached values, used repeatedly in calculations */
   float pistonBaseDistance_sq;
   float pistonEndDistance_sq;
   float pistonBaseEnd_2ab;
-  float lastTargetAngleDeg = 0;
-  float lastTargetLength = 0;
 
   // Gets piston length from the active joint angle
   // Used when getting the current real-world angle and translating to piston length used in PID

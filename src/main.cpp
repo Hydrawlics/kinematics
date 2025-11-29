@@ -192,15 +192,14 @@ void loop() {
 
 
 
-
 //  updateValves()
 //  Called once per loop to update the joint logic and pump state.
 void updateValves() {
-  #ifdef SLOW
+#ifdef SLOW
   static float lastRun = 0;
   if (millis() - lastRun < 1000) return;
   lastRun = millis();
-  #endif
+#endif
   bool demand = false;
   for (Joint* j : joints) {
     j->update();
@@ -210,6 +209,8 @@ void updateValves() {
   // if any of the joints have any demand, close the pump cicuit
   pumpMgr.update(demand);
 }
+
+
 // define to emulate slowely filling beyond limit
 //#define TIMEOUT_READY
 

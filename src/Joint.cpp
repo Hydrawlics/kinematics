@@ -135,13 +135,6 @@ void Joint::update() {
 #endif
 
   // --- Step 2: Calculate target piston length for desired angle ---
-  float targetLength;
-  if (lastTargetAngleDeg == targetAngleDeg) {
-    targetLength = lastTargetLength;
-  } else {
-    targetLength = lastTargetLength = calculatePistonLength(targetAngleDeg);
-    lastTargetAngleDeg = targetAngleDeg;
-  }
   const float currentPistonLength = calculatePistonLength(currentAngleDeg); // Changes all the time
 
   // PID control to get desired piston velocity
@@ -200,7 +193,11 @@ void Joint::resetToInit() {
 
 // Accessors for current state and control values
 void Joint::setTargetAngle(const float deg) {
+  // as of now, the only reason we store this is for tolerances in isAtTarget
   targetAngleDeg = constrain(deg, angle_min_deg, angle_max_deg);
+
+  // also calculate the target piston length to cache it
+  targetLength = calculatePistonLength(targetAngleDeg);
 }
 
 float Joint::getTargetAngleDeg() const {
