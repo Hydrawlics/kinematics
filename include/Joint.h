@@ -74,6 +74,13 @@ private:
 
   long lastUpdate = 0;
 
+  /* Cached values, used repeatedly in calculations */
+  float pistonBaseDistance_sq;
+  float pistonEndDistance_sq;
+  float pistonBaseEnd_2ab;
+  float lastTargetAngleDeg = 0;
+  float lastTargetLength = 0;
+
   // Gets piston length from the active joint angle
   // Used when getting the current real-world angle and translating to piston length used in PID
   // depends on joint endpoint placements to use law of cosines
@@ -87,7 +94,7 @@ public:
   explicit Joint(const JointConfig &config);
 
   // Initializes the rotary encoder and loads offset from EEPROM
-  void beginEncoder();
+  void beginEncoder() const;
 
   // Equivalent to Update() in Unity
   // Reads the rotary encoder angle, compares it to the target angle,
