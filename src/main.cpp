@@ -360,7 +360,9 @@ void selfTestOnce() {
   else                 { digitalWrite(J0_VALVE_EXTEND, LOW);  digitalWrite(J0_VALVE_RETRACT, LOW);  }
   delay(600);
 
+#ifdef LCD
   lcd.clear();
+#endif
 #endif
 }
 
