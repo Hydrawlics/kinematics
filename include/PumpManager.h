@@ -10,7 +10,7 @@ class PumpManager {
 private:
   bool isOn_ = false;
   unsigned long lastDemandMs_ = 0;
-  const unsigned long holdMs_ = 400; // Hold time after motion stops (ms)
+  const unsigned long holdMs_ = 200; // Hold time after motion stops (ms)
 
 public:
   void begin();
