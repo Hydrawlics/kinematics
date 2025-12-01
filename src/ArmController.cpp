@@ -1,6 +1,7 @@
 #include "ArmController.h"
 
 #include "Joint.h"
+#include "PumpManager.h"
 
 #ifdef NATIVE_TEST
     #include <algorithm>
@@ -69,7 +70,7 @@ namespace {
     }
 }
 
-ArmController::ArmController(Joint* j0, Joint* j1, Joint* j2, Joint* j3): j0(j0), j1(j1), j2(j2), j3(j3) {
+ArmController::ArmController(Joint* j0, Joint* j1, Joint* j2, Joint* j3): j{j0, j1, j2, j3} {
     // Default arm dimensions from Unity simulation (in meters)
     a1 = 0.098f;
     a2 = 0.270f;
@@ -143,6 +144,29 @@ float ArmController::parseFloat(const String& str, bool& success) {
 
     success = hasDigit;
     return success ? atof(str.c_str()) : 0.0f;
+}
+
+// Load stored offsets from EEPROM for all joint encoders
+void ArmController::getStoredOffsets() {
+    for (Joint* joint : j) {
+        joint->beginEncoder();
+    }
+}
+
+void ArmController::update(PumpManager& pumpMgr) {
+#ifdef SLOW
+    static float lastRun = 0;
+    if (millis() - lastRun < 1000) return;
+    lastRun = millis();
+#endif
+    bool demand = false;
+    for (Joint* i : j) {
+        i->update();
+        // check if this joint has any demand
+        demand |= (i->getExtendDuty() > 0 || i->getRetractDuty() > 0);
+    }
+    // if any of the joints have any demand, close the pump circuit
+    pumpMgr.update(demand);
 }
 
 GCodeParseResult ArmController::parseGCodeLine(const String& line, GCodeCommand& outCommand) {
@@ -413,20 +437,21 @@ JointAngles ArmController::moveToWorldSpace(const Vector3& worldPos) const {
 void ArmController::calibrateJoints() {
     // Run through all the joints and set the offset to the correct thing given the current values of the joint
 
-    j0->setOffsetToCurrentPhysicalRotation(0);
-    j1->setOffsetToCurrentPhysicalRotation(0);
-    j2->setOffsetToCurrentPhysicalRotation(-90);
-    j3->setOffsetToCurrentPhysicalRotation(0);
+    j[0]->setOffsetToCurrentPhysicalRotation(0);
+    j[1]->setOffsetToCurrentPhysicalRotation(0);
+    j[2]->setOffsetToCurrentPhysicalRotation(-90);
+    j[3]->setOffsetToCurrentPhysicalRotation(0);
 
 }
 
 bool ArmController::isAtTarget() const {
-    // Loop through all joints and check that they are withing tolerances
-    const bool everythingAit = j0->isAtTarget(jointAngleTolerance) &&
-        j1->isAtTarget(jointAngleTolerance) &&
-        j2->isAtTarget(jointAngleTolerance) &&
-        j3->isAtTarget(jointAngleTolerance);
-    return everythingAit;
+    // Loop through all joints and check that they are within tolerances
+    for (const Joint* i : j) {
+        if (!i->isAtTarget(jointAngleTolerance)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void ArmController::applyJointAngles(const JointAngles& angles) {
@@ -434,10 +459,10 @@ void ArmController::applyJointAngles(const JointAngles& angles) {
     targetAngles = angles;
 
     // Apply to physical joints
-    j0->setTargetAngle(angles.baseRotation);
-    j1->setTargetAngle(angles.joint1Angle);
-    j2->setTargetAngle(angles.joint2Angle);
-    j3->setTargetAngle(angles.joint3Angle);
+    j[0]->setTargetAngle(angles.baseRotation);
+    j[1]->setTargetAngle(angles.joint1Angle);
+    j[2]->setTargetAngle(angles.joint2Angle);
+    j[3]->setTargetAngle(angles.joint3Angle);
 }
 
 void ArmController::printJointAngles() {
@@ -446,23 +471,19 @@ void ArmController::printJointAngles() {
         lastAnglePrintTime = millis();
 
         // Format: J0: raw(joint), J1: raw(joint), ...
-        Serial.print("J0: ");
-        Serial.print(j0->getRawEncoderAngleDeg(), 1);
-        Serial.print("(");
-        Serial.print(j0->getCurrentAngleDeg(), 1);
-        Serial.print("), J1: ");
-        Serial.print(j1->getRawEncoderAngleDeg(), 1);
-        Serial.print("(");
-        Serial.print(j1->getCurrentAngleDeg(), 1);
-        Serial.print("), J2: ");
-        Serial.print(j2->getRawEncoderAngleDeg(), 1);
-        Serial.print("(");
-        Serial.print(j2->getCurrentAngleDeg(), 1);
-        Serial.print("), J3: ");
-        Serial.print(j3->getRawEncoderAngleDeg(), 1);
-        Serial.print("(");
-        Serial.print(j3->getCurrentAngleDeg(), 1);
-        Serial.println(")");
+        for (int i = 0; i < 4; i++) {
+            Serial.print("J");
+            Serial.print(i);
+            Serial.print(": ");
+            Serial.print(j[i]->getRawEncoderAngleDeg(), 1);
+            Serial.print("(");
+            Serial.print(j[i]->getCurrentAngleDeg(), 1);
+            Serial.print(")");
+            if (i < 3) {
+                Serial.print(", ");
+            }
+        }
+        Serial.println();
     }
 }
 
@@ -474,15 +495,17 @@ void ArmController::printPistonLengths() {
 
         // Format: P0: length, P1: length, ...
         // Lengths in meters (multiply by 1000 for mm)
-        Serial.print("P0: ");
-        Serial.print(j0->getCurrentPistonLength() * 1000, 1);
-        Serial.print("mm, P1: ");
-        Serial.print(j1->getCurrentPistonLength() * 1000, 1);
-        Serial.print("mm, P2: ");
-        Serial.print(j2->getCurrentPistonLength() * 1000, 1);
-        Serial.print("mm, P3: ");
-        Serial.print(j3->getCurrentPistonLength() * 1000, 1);
-        Serial.println("mm");
+        for (int i = 0; i < 4; i++) {
+            Serial.print("P");
+            Serial.print(i);
+            Serial.print(": ");
+            Serial.print(j[i]->getCurrentPistonLength() * 1000, 1);
+            Serial.print("mm");
+            if (i < 3) {
+                Serial.print(", ");
+            }
+        }
+        Serial.println();
     }
 }
 

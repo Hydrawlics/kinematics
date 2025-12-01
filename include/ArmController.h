@@ -2,6 +2,7 @@
 #define ARM_CONTROLLER_H
 
 #include "Joint.h"
+#include "PumpManager.h"
 
 #ifdef NATIVE_TEST
     // Native testing mode - use standard C++ libraries
@@ -126,12 +127,16 @@ public:
     //     O1       // first joint should be rotated straight up (0°)
     // |-------|    // base should be rotated towards the middle of the drawing area
     void calibrateJoints();
+    // get calibration data stored on the EEPROM
+    void getStoredOffsets();
 
     void applyJointAngles(const JointAngles& angles);
     bool isAtTarget() const;
     void printJointAngles();
     void printPistonLengths();
 #endif
+
+    void update(PumpManager& pumpMgr);
 
     // G-Code processing
     GCodeParseResult parseGCodeLine(const String& line, GCodeCommand& outCommand);
@@ -176,10 +181,7 @@ private:
 
 #ifndef NATIVE_TEST
     // Joint management (Arduino only)
-    Joint* j0;
-    Joint* j1;
-    Joint* j2;
-    Joint* j3;
+    Joint* j[4];
     JointAngles targetAngles;
     unsigned long lastAnglePrintTime = 0;
 #endif
