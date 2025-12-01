@@ -6,7 +6,7 @@
 
 #define SELFTEST_ON_START 1          // Run relay polarity test at startup (disable after confirmed)
 #define RELAY_ACTIVE_LOW  true       // Set false if relay board is active-HIGH (depends on module type)
-//#define VERBOSE
+//#define VERBOSE                      // NOTE! Breaks communications with the python script. For debugging only when not communicating with flask
 #define SLOW
 
 #include <Arduino.h>
@@ -54,6 +54,7 @@ constexpr float PISTON1_LEN_MIN = 0.1280;
 constexpr float PISTON1_LEN_MAX = 0.1657;
 
 // Forward declarations
+void calibrateIfFlag();
 void updateValves();
 void serialRead();
 void processCommandQueue();
@@ -126,8 +127,8 @@ Joint j3({
   false   // invertEncoderDirection
 });
 
-Joint* joints[] = { &j0, &j1, &j2, &j3 };
 ArmController armController(&j0, &j1, &j2, &j3);
+
 
 
 //  Setup() - Equivalent to Start() in Unity
@@ -160,7 +161,27 @@ void setup() {
 
 //  Loop() - Equivalent to Update() in Unity
 void loop() {
+  // -- COLD CALLS; unlikely to actually do something (requires a button press, etc) --
   // Handle calibration request from interrupt
+  calibrateIfFlag();
+  // processes incoming serial communication from the python script running on Raspberry Pi and enqueues into gcodequeue
+  serialRead();
+  // runs next gcode command in queue if the one executing currently is within tolerances
+  processCommandQueue();
+  //lcdFeedback();
+
+  // -- HOT CALLS; somewhat processor consuming each iteration --
+  // Run through the arm valves and update the output PWM duty based on PID value from error
+  armController.update(pumpMgr);
+
+#ifdef VERBOSE
+  armController.printPistonLengths();
+  armController.printJointAngles();
+#endif
+}
+
+
+void calibrateIfFlag() {
   if (calibrationRequested) {
     calibrationRequested = false;
 
@@ -174,41 +195,8 @@ void loop() {
     }
     digitalWrite(STATUS_LED, LOW);
   }
-
-  // processes incoming serial communication from the python script running on Raspberry Pi and enqueues into gcodequeue
-  serialRead();
-  // runs next gcode command in queue if the one executing currently is within tolerances
-  processCommandQueue();
-  updateValves();
-
-  //lcdFeedback();
-
-#ifdef VERBOSE
-  armController.printPistonLengths();
-  armController.printJointAngles();
-#endif
 }
 
-
-
-
-//  updateValves()
-//  Called once per loop to update the joint logic and pump state.
-void updateValves() {
-#ifdef SLOW
-  static float lastRun = 0;
-  if (millis() - lastRun < 1000) return;
-  lastRun = millis();
-#endif
-  bool demand = false;
-  for (Joint* j : joints) {
-    j->update();
-    // check if this joint has any demand
-    demand |= (j->getExtendDuty() > 0 || j->getRetractDuty() > 0);
-  }
-  // if any of the joints have any demand, close the pump cicuit
-  pumpMgr.update(demand);
-}
 
 
 // define to emulate slowely filling beyond limit
@@ -366,9 +354,4 @@ void selfTestOnce() {
 #endif
 }
 
-// Load stored offsets from EEPROM for all joint encoders
-void getStoredOffsets() {
-  for (Joint* j : joints) {
-    j->beginEncoder();
-  }
-}
+
