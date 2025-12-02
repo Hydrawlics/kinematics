@@ -16,6 +16,7 @@
 #include "PumpManager.h"
 #include "ArmController.h"
 #include "GCodeCommandQueue.h"
+#include "SerialCom.h"
 
 // --- I/O declerations ---
 #ifdef LCD
@@ -184,7 +185,7 @@ void calibrateIfFlag() {
     // LED fade indication (~2 seconds)
     for (int i = 0; i < 1000; i++) {
       float brightnessAmplitude = abs(sin(i * ((2 * M_PI) / 1000)));
-      analogWrite(STATUS_LED, (int)(brightnessAmplitude * 255));
+      analogWrite(STATUS_LED, static_cast<int>(brightnessAmplitude * 255));
       delay(1);
     }
     digitalWrite(STATUS_LED, LOW);
@@ -213,7 +214,7 @@ void serialRead() {
     || millis() - lastSentReadyTime > 5000
 #endif
     ) {
-    Serial.println("Ready");
+    SerialCom::ready();
     lastSentReady = true;
 #ifdef TIMEOUT_READY
     lastSentReadyTime = millis();
@@ -224,9 +225,7 @@ void serialRead() {
 
   // Read one line at a time
   if (Serial.available()) {
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-
+    String line = SerialCom::readLine();
     if (line.length() == 0) return;
 
     // Parse and enqueue GCode command
@@ -234,19 +233,17 @@ void serialRead() {
     switch (armController.parseGCodeLine(line, cmd)) {
       case GCodeParseResult::Success:
         if (gcodeQueue.enqueue(cmd)) {
-          Serial.print("OK ");
-          Serial.println(calculateChecksum(line));
+          SerialCom::ok(calculateChecksum(line));
         } else {
-          Serial.println("ERR Queue Full");
+          SerialCom::err("Queue Full");
         }
         break;
       case GCodeParseResult::InvalidCommand:
-        Serial.println("ERR Invalid GCode");
+        SerialCom::err("Invalid GCode");
       case GCodeParseResult::EmptyLine:
       case GCodeParseResult::ModeChange:
       default:
-        Serial.print("OK ");
-        Serial.println(calculateChecksum(line));
+        SerialCom::ok(calculateChecksum(line));
         break;
     }
     // last sent was error or OK
