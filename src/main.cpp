@@ -130,7 +130,7 @@ ArmController armController(&j0, &j1, &j2, &j3);
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(500);
-  Serial.println("Connected");
+  SerialCom::connected();
 
   Wire.begin();  // Initialize I2C for rotary encoders and LCD
 
