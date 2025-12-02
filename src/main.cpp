@@ -27,25 +27,19 @@ constexpr uint8_t STATUS_LED = 13; // 13 has PWM, fancy fading light, internal l
 constexpr uint8_t CALIBRATION_BUTTON = 2;
 constexpr uint8_t PUMP_PIN = 30; // dedicated pump relay pin
 
-// Joint 0 pins
-constexpr uint8_t J0_VALVE_EXTEND = 22;
-constexpr uint8_t J0_VALVE_RETRACT = 23;
-constexpr uint8_t J0_POTMETER = A3;
+// Pin definitions
+constexpr uint8_t J0_VALVE_RETRACT = 22;
+constexpr uint8_t J0_VALVE_EXTEND = 23;
 
-// Joint 1 pins
-constexpr uint8_t J1_VALVE_EXTEND = 24;
-constexpr uint8_t J1_VALVE_RETRACT = 25;
-constexpr uint8_t J1_POTMETER = A4;
+constexpr uint8_t J1_VALVE_RETRACT = 24;
+constexpr uint8_t J1_VALVE_EXTEND = 25;
 
-// Joint 2 pins
-constexpr uint8_t J2_VALVE_EXTEND = 26;
-constexpr uint8_t J2_VALVE_RETRACT = 27;
-constexpr uint8_t J2_POTMETER = A5;
+constexpr uint8_t J2_VALVE_RETRACT = 26;
+constexpr uint8_t J2_VALVE_EXTEND = 27;
 
-// Joint 3 pins
-constexpr uint8_t J3_VALVE_EXTEND = 28;
-constexpr uint8_t J3_VALVE_RETRACT = 29;
-constexpr uint8_t J3_POTMETER = A6;
+constexpr uint8_t J3_VALVE_RETRACT = 28;
+constexpr uint8_t J3_VALVE_EXTEND = 29;
+
 
 // Piston Lengths (used in Joints to calculate angles)
 // the only piston type we have as of now
