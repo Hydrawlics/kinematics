@@ -5,7 +5,7 @@
 // =====================================================================
 
 #define SELFTEST_ON_START 1          // Run relay polarity test at startup (disable after confirmed)
-#define RELAY_ACTIVE_LOW  true       // Set false if relay board is active-HIGH (depends on module type)
+#define RELAY_ACTIVE_LOW  false      // Set false if relay board is active-HIGH (depends on module type)
 //#define VERBOSE                      // NOTE! Breaks communications with the python script. For debugging only when not communicating with flask
 #define SLOW
 
@@ -16,6 +16,7 @@
 #include "PumpManager.h"
 #include "ArmController.h"
 #include "GCodeCommandQueue.h"
+#include "SerialCom.h"
 
 // --- I/O declerations ---
 #ifdef LCD
@@ -27,25 +28,19 @@ constexpr uint8_t STATUS_LED = 13; // 13 has PWM, fancy fading light, internal l
 constexpr uint8_t CALIBRATION_BUTTON = 2;
 constexpr uint8_t PUMP_PIN = 30; // dedicated pump relay pin
 
-// Joint 0 pins
-constexpr uint8_t J0_VALVE_EXTEND = 22;
-constexpr uint8_t J0_VALVE_RETRACT = 23;
-constexpr uint8_t J0_POTMETER = A3;
+// Pin definitions
+constexpr uint8_t J0_VALVE_RETRACT = 22;
+constexpr uint8_t J0_VALVE_EXTEND = 23;
 
-// Joint 1 pins
-constexpr uint8_t J1_VALVE_EXTEND = 24;
-constexpr uint8_t J1_VALVE_RETRACT = 25;
-constexpr uint8_t J1_POTMETER = A4;
+constexpr uint8_t J1_VALVE_RETRACT = 24;
+constexpr uint8_t J1_VALVE_EXTEND = 25;
 
-// Joint 2 pins
-constexpr uint8_t J2_VALVE_EXTEND = 26;
-constexpr uint8_t J2_VALVE_RETRACT = 27;
-constexpr uint8_t J2_POTMETER = A5;
+constexpr uint8_t J2_VALVE_RETRACT = 26;
+constexpr uint8_t J2_VALVE_EXTEND = 27;
 
-// Joint 3 pins
-constexpr uint8_t J3_VALVE_EXTEND = 28;
-constexpr uint8_t J3_VALVE_RETRACT = 29;
-constexpr uint8_t J3_POTMETER = A6;
+constexpr uint8_t J3_VALVE_RETRACT = 28;
+constexpr uint8_t J3_VALVE_EXTEND = 29;
+
 
 // Piston Lengths (used in Joints to calculate angles)
 // the only piston type we have as of now
@@ -62,7 +57,6 @@ uint8_t calculateChecksum(String &line);
 void selfTestOnce();
 void printFloatOrDash(float v, uint8_t d);
 void calibrateBtnInterrupt();
-void getStoredOffsets();
 
 #ifdef LCD
 void lcdClearLine(uint8_t row);
@@ -92,7 +86,7 @@ inline void pumpWrite(const bool on) {
 //  Instances
 // Azimuth joint; Rotates the whole arm around the azimuth angle
 Joint j0({
-  J0_VALVE_EXTEND, J0_VALVE_RETRACT, 0,
+  J0_VALVE_EXTEND, J0_VALVE_RETRACT, 2,
   0.050, -180,   // base distance and angle - Defined the same way as j1!
   0.151, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
@@ -101,7 +95,7 @@ Joint j0({
 });
 // Base-arm joint; Lifts the whole arm, first joint in arm
 Joint j1({
-  J1_VALVE_EXTEND, J1_VALVE_RETRACT, 1,
+  J1_VALVE_EXTEND, J1_VALVE_RETRACT, 3,
   0.111, 79.21,   // base distance and angle (79.21 because has an offset to the left of straight up that is 79.21)
   0.070, 0,   // end distance and angle (0 because straight up)
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
@@ -110,7 +104,7 @@ Joint j1({
 });
 // Elbow joint; Topmost joint, elbow up.
 Joint j2({
-  J2_VALVE_EXTEND, J2_VALVE_RETRACT, 2,
+  J2_VALVE_EXTEND, J2_VALVE_RETRACT, 4,
   0.050, -180,   // base distance and angle
   0.151, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
@@ -119,7 +113,7 @@ Joint j2({
 });
 // End-effector joint; Keeps the end-effector horizontal
 Joint j3({
-  J3_VALVE_EXTEND, J3_VALVE_RETRACT, 3,
+  J3_VALVE_EXTEND, J3_VALVE_RETRACT, 5,
   0.095, -180,   // base distance and angle
   0.070, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
@@ -135,7 +129,7 @@ ArmController armController(&j0, &j1, &j2, &j3);
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(500);
-  Serial.println("Connected");
+  SerialCom::connected();
 
   Wire.begin();  // Initialize I2C for rotary encoders and LCD
 
@@ -151,7 +145,7 @@ void setup() {
 
   digitalWrite(STATUS_LED, LOW);
 
-  getStoredOffsets();
+  armController.getStoredOffsets();
 
   attachInterrupt(digitalPinToInterrupt(CALIBRATION_BUTTON), calibrateBtnInterrupt, FALLING);
 
@@ -190,7 +184,7 @@ void calibrateIfFlag() {
     // LED fade indication (~2 seconds)
     for (int i = 0; i < 1000; i++) {
       float brightnessAmplitude = abs(sin(i * ((2 * M_PI) / 1000)));
-      analogWrite(STATUS_LED, (int)(brightnessAmplitude * 255));
+      analogWrite(STATUS_LED, static_cast<int>(brightnessAmplitude * 255));
       delay(1);
     }
     digitalWrite(STATUS_LED, LOW);
@@ -219,7 +213,7 @@ void serialRead() {
     || millis() - lastSentReadyTime > 5000
 #endif
     ) {
-    Serial.println("Ready");
+    SerialCom::ready();
     lastSentReady = true;
 #ifdef TIMEOUT_READY
     lastSentReadyTime = millis();
@@ -230,9 +224,7 @@ void serialRead() {
 
   // Read one line at a time
   if (Serial.available()) {
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-
+    String line = SerialCom::readLine();
     if (line.length() == 0) return;
 
     // Parse and enqueue GCode command
@@ -240,19 +232,17 @@ void serialRead() {
     switch (armController.parseGCodeLine(line, cmd)) {
       case GCodeParseResult::Success:
         if (gcodeQueue.enqueue(cmd)) {
-          Serial.print("OK ");
-          Serial.println(calculateChecksum(line));
+          SerialCom::ok(calculateChecksum(line));
         } else {
-          Serial.println("ERR Queue Full");
+          SerialCom::err("Queue Full");
         }
         break;
       case GCodeParseResult::InvalidCommand:
-        Serial.println("ERR Invalid GCode");
+        SerialCom::err("Invalid GCode");
       case GCodeParseResult::EmptyLine:
       case GCodeParseResult::ModeChange:
       default:
-        Serial.print("OK ");
-        Serial.println(calculateChecksum(line));
+        SerialCom::ok(calculateChecksum(line));
         break;
     }
     // last sent was error or OK
