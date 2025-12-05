@@ -5,7 +5,7 @@
 // =====================================================================
 
 #define SELFTEST_ON_START 1          // Run relay polarity test at startup (disable after confirmed)
-#define RELAY_ACTIVE_LOW  true       // Set false if relay board is active-HIGH (depends on module type)
+#define RELAY_ACTIVE_LOW  false      // Set false if relay board is active-HIGH (depends on module type)
 //#define VERBOSE                      // NOTE! Breaks communications with the python script. For debugging only when not communicating with flask
 #define SLOW
 
@@ -57,7 +57,6 @@ uint8_t calculateChecksum(String &line);
 void selfTestOnce();
 void printFloatOrDash(float v, uint8_t d);
 void calibrateBtnInterrupt();
-void getStoredOffsets();
 
 #ifdef LCD
 void lcdClearLine(uint8_t row);
@@ -87,7 +86,7 @@ inline void pumpWrite(const bool on) {
 //  Instances
 // Azimuth joint; Rotates the whole arm around the azimuth angle
 Joint j0({
-  J0_VALVE_EXTEND, J0_VALVE_RETRACT, 0,
+  J0_VALVE_EXTEND, J0_VALVE_RETRACT, 2,
   0.050, -180,   // base distance and angle - Defined the same way as j1!
   0.151, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
@@ -96,7 +95,7 @@ Joint j0({
 });
 // Base-arm joint; Lifts the whole arm, first joint in arm
 Joint j1({
-  J1_VALVE_EXTEND, J1_VALVE_RETRACT, 1,
+  J1_VALVE_EXTEND, J1_VALVE_RETRACT, 3,
   0.111, 79.21,   // base distance and angle (79.21 because has an offset to the left of straight up that is 79.21)
   0.070, 0,   // end distance and angle (0 because straight up)
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
@@ -105,7 +104,7 @@ Joint j1({
 });
 // Elbow joint; Topmost joint, elbow up.
 Joint j2({
-  J2_VALVE_EXTEND, J2_VALVE_RETRACT, 2,
+  J2_VALVE_EXTEND, J2_VALVE_RETRACT, 4,
   0.050, -180,   // base distance and angle
   0.151, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
@@ -114,7 +113,7 @@ Joint j2({
 });
 // End-effector joint; Keeps the end-effector horizontal
 Joint j3({
-  J3_VALVE_EXTEND, J3_VALVE_RETRACT, 3,
+  J3_VALVE_EXTEND, J3_VALVE_RETRACT, 5,
   0.095, -180,   // base distance and angle
   0.070, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
@@ -146,7 +145,7 @@ void setup() {
 
   digitalWrite(STATUS_LED, LOW);
 
-  getStoredOffsets();
+  armController.getStoredOffsets();
 
   attachInterrupt(digitalPinToInterrupt(CALIBRATION_BUTTON), calibrateBtnInterrupt, FALLING);
 
