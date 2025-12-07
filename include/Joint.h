@@ -78,6 +78,16 @@ private:
 
   long lastUpdate = 0;
 
+  // Sensor validation for EMI resilience
+  float lastValidAngleDeg = NAN;
+  unsigned long lastValidReadTime = 0;
+  uint16_t consecutiveBadReadings = 0;
+  bool sensorErrorState = false;
+
+  // Rate-of-change limit (degrees per millisecond)
+  static constexpr float MAX_ANGLE_RATE = 0.5f;  // 0.5 deg/ms = 500 deg/s (physical limit)
+  static constexpr uint16_t MAX_CONSECUTIVE_BAD_READS = 10;  // Trigger error state after this many failures
+
   /* Cached values, used repeatedly in calculations */
   float pistonBaseDistance_sq;
   float pistonEndDistance_sq;
@@ -115,6 +125,10 @@ public:
   uint8_t getExtendDuty() const;
   uint8_t getRetractDuty() const;
   float getLastPID() const;
+
+  // Error diagnostics
+  bool isSensorHealthy() const;
+  uint16_t getSensorErrorCount() const;
 
   // Configuration
   void setOffsetToCurrentPhysicalRotation(float currentPhysicalRotation);

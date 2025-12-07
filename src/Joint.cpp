@@ -116,29 +116,86 @@ float Joint::calculateJointAngle(const float pistonLength) const {
 // and adjusts valve outputs using PID control with a deadband
 void Joint::update() {
   const long deltaTime = millis() - lastUpdate;
+  const unsigned long now = millis();
 
-  // --- Step 1: Read current angle from rotary encoder ---
-  float circularAngle = re->getAngleDeg();
-
-  // Invert encoder direction if sensor is mounted backwards
-  //if (invertEncoderDirection) {
-  //  circularAngle = 360.0f - circularAngle;
-  //}
+  // --- Step 1: Read current angle from rotary encoder with error detection ---
+  bool sensorValid = false;
+  float circularAngle = re->getAngleDeg(sensorValid);
 
   // the zero point should align with the joint zero point,
   // however, we need to fix so that values between 360 and 180 are negatives:
   // 359 => 359-360 == -1
-  const float nonCircAngle = circularAngle > 180 ? (circularAngle - 360) : circularAngle;
-  currentAngleDeg = constrain(nonCircAngle, angle_min_deg, angle_max_deg);
+  float nonCircAngle = circularAngle > 180 ? (circularAngle - 360) : circularAngle;
+  float newAngle = constrain(nonCircAngle, angle_min_deg, angle_max_deg);
+
+  // --- Step 2: Validate sensor reading for EMI corruption ---
+  bool angleIsValid = sensorValid;  // Start with I2C validity
+
+  // Additional validation: Rate-of-change check (only if we have a previous valid reading)
+  if (angleIsValid && !isnan(lastValidAngleDeg) && lastValidReadTime > 0) {
+    const unsigned long timeSinceLastValid = now - lastValidReadTime;
+    const float angleDelta = abs(newAngle - lastValidAngleDeg);
+
+    // Check for impossible rate of change (indicates corrupted data)
+    if (timeSinceLastValid > 0) {
+      const float angleRate = angleDelta / timeSinceLastValid;  // degrees per millisecond
+      if (angleRate > MAX_ANGLE_RATE) {
+        angleIsValid = false;  // Reject impossible movement
+#ifdef VERBOSE
+        Serial.print("[Joint] Rate-of-change violation: ");
+        Serial.print(angleRate);
+        Serial.print(" deg/ms (max: ");
+        Serial.print(MAX_ANGLE_RATE);
+        Serial.println(")");
+#endif
+      }
+    }
+  }
+
+  // Handle valid vs invalid readings
+  if (angleIsValid) {
+    // Good reading - use it
+    currentAngleDeg = newAngle;
+    lastValidAngleDeg = newAngle;
+    lastValidReadTime = now;
+    consecutiveBadReadings = 0;
+    sensorErrorState = false;
+  } else {
+    // Bad reading - use last valid value and increment error counter
+    consecutiveBadReadings++;
+
+    if (!isnan(lastValidAngleDeg)) {
+      currentAngleDeg = lastValidAngleDeg;  // Hold last valid position
+    }
+
+    // Enter error state if too many consecutive failures
+    if (consecutiveBadReadings >= MAX_CONSECUTIVE_BAD_READS) {
+      sensorErrorState = true;
+#ifdef VERBOSE
+      Serial.println("[Joint] SENSOR ERROR STATE - Too many bad readings!");
+#endif
+    }
+  }
+
 #ifdef VERBOSE
   Serial.print("[Joint] currentAngle:");
   Serial.print(currentAngleDeg);
   Serial.print(" targetAngle:");
-  Serial.println(targetAngleDeg);
+  Serial.print(targetAngleDeg);
+  Serial.print(" valid:");
+  Serial.println(angleIsValid ? "Y" : "N");
 #endif
 
-  // --- Step 2: Calculate target piston length for desired angle ---
+  // --- Step 3: Calculate target piston length for desired angle ---
   const float currentPistonLength = calculatePistonLength(currentAngleDeg); // Changes all the time
+
+  // Safety: If in error state, disable valves
+  if (sensorErrorState) {
+    v->UpdatePWM(0);  // Stop all valve movement
+    v->update();
+    lastUpdate = millis();
+    return;  // Skip PID when sensor is unreliable
+  }
 
   // PID control to get desired piston velocity
   float error = targetLength - currentPistonLength;
@@ -199,7 +256,7 @@ void Joint::update() {
 
   lastUpdate = millis();
 
-  // --- Step 3: Send control signal to valve ---
+  // --- Step 4: Send control signal to valve ---
   v->UpdatePWM(pidOutput);
   v->update();
 }
@@ -227,7 +284,8 @@ float Joint::getCurrentAngleDeg() const {
 }
 
 float Joint::getRawEncoderAngleDeg() const {
-  return re->getAngleDeg();
+  bool isValid;
+  return re->getAngleDeg(isValid);
 }
 
 float Joint::getCurrentPistonLength() const {
@@ -268,4 +326,13 @@ void Joint::setOffsetToCurrentPhysicalRotation(const float currentPhysicalRotati
 bool Joint::isAtTarget(const float degreeTolerance) const {
   const float angleDiff = abs(targetAngleDeg - currentAngleDeg);
   return angleDiff <= degreeTolerance;
+}
+
+// Error diagnostics
+bool Joint::isSensorHealthy() const {
+  return !sensorErrorState && (consecutiveBadReadings < 3);
+}
+
+uint16_t Joint::getSensorErrorCount() const {
+  return consecutiveBadReadings;
 }

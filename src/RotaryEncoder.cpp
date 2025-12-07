@@ -17,7 +17,10 @@ RotaryEncoder::RotaryEncoder(uint8_t tcaChannel,
       _invertValues(invertValues),
       _as5600Addr(as5600Address),
       _channel(tcaChannel),
-      _offsetDeg(0.0f)
+      _offsetDeg(0.0f),
+      _consecutiveErrors(0),
+      _totalErrors(0),
+      _lastValidAngle(0.0f)
 {
 }
 
@@ -46,52 +49,83 @@ void RotaryEncoder::selectTCAChannel() const {
 
 
 /*
- * Reads the raw 12-bit angle register from AS5600.
+ * Reads the raw 12-bit angle register from AS5600 with retry logic.
  * Returns: value from 0 to 4095.
- * Returns 0 if the read fails.
+ * Sets success flag to indicate if read was successful.
  */
-uint16_t RotaryEncoder::readRawAngleRegister() {
-    selectTCAChannel();  // Ensure correct downstream I2C device is active
+uint16_t RotaryEncoder::readRawAngleRegister(bool &success) {
+    success = false;
+    uint16_t angle = 0;
 
-    // Tell the AS5600 which register we want to read
-    Wire.beginTransmission(_as5600Addr);
-    Wire.write(AS5600_ANGLE_REG);
-    Wire.endTransmission(false);   // Repeated start (keeps connection open)
+    // Retry loop for EMI resilience
+    for (uint8_t attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+            delayMicroseconds(RETRY_DELAY_US);  // Brief delay between retries
+        }
 
-    // Request 2 bytes: high and low part of angle value
-    Wire.requestFrom((int)_as5600Addr, 2);
-    if (Wire.available() >= 2) {
-        uint8_t highByte = Wire.read();
-        uint8_t lowByte  = Wire.read();
+        selectTCAChannel();  // Ensure correct downstream I2C device is active
 
-        // Combine bytes into one 12-bit number
-        uint16_t angle = ((uint16_t)highByte << 8) | lowByte;
-        angle &= 0x0FFF; // Mask to keep only lowest 12 bits
-        if (_invertValues) angle = 4096 - angle;
-        #ifdef REVERSE_DIR
-        angle = 4096 - angle;
-        #endif
-        return angle;
+        // Tell the AS5600 which register we want to read
+        Wire.beginTransmission(_as5600Addr);
+        Wire.write(AS5600_ANGLE_REG);
+        uint8_t txStatus = Wire.endTransmission(false);   // Repeated start
+
+        // Check if transmission was successful
+        if (txStatus != 0) {
+            continue;  // I2C error, retry
+        }
+
+        // Request 2 bytes: high and low part of angle value
+        uint8_t bytesReceived = Wire.requestFrom((int)_as5600Addr, 2);
+
+        if (bytesReceived >= 2 && Wire.available() >= 2) {
+            uint8_t highByte = Wire.read();
+            uint8_t lowByte  = Wire.read();
+
+            // Combine bytes into one 12-bit number
+            angle = ((uint16_t)highByte << 8) | lowByte;
+            angle &= 0x0FFF; // Mask to keep only lowest 12 bits
+
+            // Basic sanity check: AS5600 returns max 4095
+            if (angle <= 4095) {
+                if (_invertValues) angle = 4096 - angle;
+                #ifdef REVERSE_DIR
+                angle = 4096 - angle;
+                #endif
+
+                success = true;
+                _consecutiveErrors = 0;  // Reset on success
+                return angle;
+            }
+        }
     }
 
-    // Read failed — return 0 (valid but typically indicates a communication issue)
-    return 0;
+    // All retries failed
+    _consecutiveErrors++;
+    _totalErrors++;
+    return 0;  // Return 0 but success is false
 }
 
 /*
  * Returns the raw sensor value without offset.
  */
 uint16_t RotaryEncoder::getRawAngle() {
-    return readRawAngleRegister();
+    bool success;
+    return readRawAngleRegister(success);
 }
 
 /*
- * Returns angle in degrees, applying offset and normalizing to [0, 360).
+ * Returns angle in degrees with error detection, applying offset and normalizing to [0, 360).
+ * If I2C read fails after retries, returns last valid angle and sets isValid to false.
  */
-float RotaryEncoder::getAngleDeg() {
-    uint16_t raw = readRawAngleRegister();
+float RotaryEncoder::getAngleDeg(bool &isValid) {
+    bool readSuccess;
+    uint16_t raw = readRawAngleRegister(readSuccess);
 
-
+    if (!readSuccess) {
+        isValid = false;
+        return _lastValidAngle;  // Return last known good value on failure
+    }
 
     // Convert raw AS5600 0–4095 value to degrees
     float angle = (static_cast<float>(raw) / 4096.0f) * 360.0f;
@@ -103,7 +137,26 @@ float RotaryEncoder::getAngleDeg() {
     while (angle >= 360.0f) angle -= 360.0f;
     while (angle < 0.0f)    angle += 360.0f;
 
+    // Store as last valid reading
+    _lastValidAngle = angle;
+    isValid = true;
     return angle;
+}
+
+/*
+ * Returns error statistics for diagnostics.
+ */
+uint16_t RotaryEncoder::getConsecutiveErrors() const {
+    return _consecutiveErrors;
+}
+
+uint16_t RotaryEncoder::getTotalErrors() const {
+    return _totalErrors;
+}
+
+void RotaryEncoder::resetErrorCounters() {
+    _consecutiveErrors = 0;
+    _totalErrors = 0;
 }
 
 
