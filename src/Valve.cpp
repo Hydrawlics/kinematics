@@ -2,8 +2,8 @@
 
 Valve::Valve(const uint8_t _pin_e, const uint8_t _pin_r) {
   // Create PWM controllers for both directions
-  v_e = new LowFreqPWM(_pin_e, 1.0, 5.0); // 1Hz PWM, 5Hz max action rate
-  v_r = new LowFreqPWM(_pin_r, 1.0, 5.0);
+  v_e = new LowFreqPWM(_pin_e, 1.5, 7.5); // 1Hz PWM, 5Hz max action rate
+  v_r = new LowFreqPWM(_pin_r, 1.5, 7.5);
 }
 
 // move ∈ [-1, 1]  (− = retract, + = extend, 0 = hold)

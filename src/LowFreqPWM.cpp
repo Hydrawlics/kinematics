@@ -10,6 +10,13 @@ LowFreqPWM::LowFreqPWM(const uint8_t _pin, const float frequency, const float ma
   state = false;
   lastToggle = 0;
   pinMode(pin, OUTPUT);
+
+  // Initialize pin to OFF state immediately to prevent relay trigger on startup
+#ifdef RELAY_ACTIVE_LOW
+  digitalWrite(pin, HIGH);  // Active-low: HIGH = relay OFF
+#else
+  digitalWrite(pin, LOW);   // Active-high: LOW = relay OFF
+#endif
 }
 
 void LowFreqPWM::setDutyCycle(const uint8_t dc) {

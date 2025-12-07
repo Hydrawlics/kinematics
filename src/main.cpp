@@ -5,7 +5,7 @@
 // =====================================================================
 
 #define SELFTEST_ON_START 1          // Run relay polarity test at startup (disable after confirmed)
-#define RELAY_ACTIVE_LOW  false      // Set false if relay board is active-HIGH (depends on module type)
+#define RELAY_ACTIVE_LOW true // Set false if relay board is active-HIGH (depends on module type)
 //#define VERBOSE                      // NOTE! Breaks communications with the python script. For debugging only when not communicating with flask
 #define SLOW
 
@@ -74,8 +74,11 @@ LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
 PumpManager pumpMgr;
 GCodeCommandQueue gcodeQueue;
 
-// Calibration flag - set by interrupt, handled in loop
-volatile bool calibrationRequested = false;
+// Calibration button state tracking
+volatile bool buttonPressed = false;
+unsigned long buttonPressStartTime = 0;
+constexpr unsigned long CALIBRATION_HOLD_TIME_MS = 1000; // Hold button for 1 second to calibrate
+bool calibrationTriggered = false;
 
 // --- Pump relay (state) ---
 inline void pumpWrite(const bool on) {
@@ -87,8 +90,8 @@ inline void pumpWrite(const bool on) {
 // Azimuth joint; Rotates the whole arm around the azimuth angle
 Joint j0({
   J0_VALVE_EXTEND, J0_VALVE_RETRACT, 2,
-  0.050, -180,   // base distance and angle - Defined the same way as j1!
-  0.151, 0,   // end distance and angle
+  0.16014, 65.314,   // base distance and angle - Defined the same way as j1!
+  0.0703, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
   false,  // invertPistonLengthRelationship
   false   // invertEncoderDirection
@@ -117,7 +120,7 @@ Joint j3({
   0.095, -180,   // base distance and angle
   0.070, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
-  false,  // invertPistonLengthRelationship
+  true,  // invertPistonLengthRelationship
   false   // invertEncoderDirection
 });
 
@@ -147,10 +150,19 @@ void setup() {
 
   armController.getStoredOffsets();
 
+  //apply default position
+  JointAngles initialPosition = JointAngles();
+  initialPosition.baseRotation = 0;
+  initialPosition.joint1Angle = -29;
+  initialPosition.joint2Angle = -104;
+  initialPosition.joint3Angle = 60;
+  initialPosition.valid = true;
+  armController.applyJointAngles(initialPosition);
+
   attachInterrupt(digitalPinToInterrupt(CALIBRATION_BUTTON), calibrateBtnInterrupt, FALLING);
 
   pumpMgr.begin();
-  selfTestOnce();  // One-time hardware verification
+  //selfTestOnce();  // One-time hardware verification
 }
 
 //  Loop() - Equivalent to Update() in Unity
@@ -176,17 +188,47 @@ void loop() {
 
 
 void calibrateIfFlag() {
-  if (calibrationRequested) {
-    calibrationRequested = false;
+  // Check current button state (LOW = pressed due to INPUT_PULLUP)
+  bool currentlyPressed = (digitalRead(CALIBRATION_BUTTON) == LOW);
 
-    armController.calibrateJoints();
+  // Button was just pressed (interrupt fired)
+  if (buttonPressed && currentlyPressed && buttonPressStartTime == 0) {
+    buttonPressStartTime = millis();
+    calibrationTriggered = false;
+  }
 
-    // LED fade indication (~2 seconds)
-    for (int i = 0; i < 1000; i++) {
-      float brightnessAmplitude = abs(sin(i * ((2 * M_PI) / 1000)));
-      analogWrite(STATUS_LED, static_cast<int>(brightnessAmplitude * 255));
-      delay(1);
+  // Button is being held - check if held long enough
+  if (currentlyPressed && buttonPressStartTime > 0 && !calibrationTriggered) {
+    unsigned long holdDuration = millis() - buttonPressStartTime;
+
+    // Visual feedback while holding - pulse LED faster as you approach threshold
+    if (holdDuration < CALIBRATION_HOLD_TIME_MS) {
+      // Blink faster as we get closer to triggering
+      int blinkRate = map(holdDuration, 0, CALIBRATION_HOLD_TIME_MS, 500, 100);
+      digitalWrite(STATUS_LED, (millis() % blinkRate) < (blinkRate / 2) ? HIGH : LOW);
     }
+
+    // Held long enough - trigger calibration
+    if (holdDuration >= CALIBRATION_HOLD_TIME_MS) {
+      calibrationTriggered = true;
+
+      armController.calibrateJoints();
+
+      // LED fade indication (~2 seconds)
+      for (int i = 0; i < 1000; i++) {
+        float brightnessAmplitude = abs(sin(i * ((2 * M_PI) / 1000)));
+        analogWrite(STATUS_LED, static_cast<int>(brightnessAmplitude * 255));
+        delay(1);
+      }
+      digitalWrite(STATUS_LED, LOW);
+    }
+  }
+
+  // Button released - reset state
+  if (!currentlyPressed) {
+    buttonPressed = false;
+    buttonPressStartTime = 0;
+    calibrationTriggered = false;
     digitalWrite(STATUS_LED, LOW);
   }
 }
@@ -300,9 +342,9 @@ void lcdFeedback () {
 }
 #endif
 
-// Calibration interrupt - just set flag, handle in loop()
+// Calibration interrupt - set flag when button pressed, actual handling in loop()
 void calibrateBtnInterrupt() {
-  calibrationRequested = true;
+  buttonPressed = true;
 }
 
 //  Self-Test

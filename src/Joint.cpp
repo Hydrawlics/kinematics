@@ -31,12 +31,13 @@ Joint::Joint(const JointConfig &config) {
   angle_min_deg = min(angle1, angle2);
   angle_max_deg = max(angle1, angle2);
 
-  targetAngleDeg = (angle_min_deg + angle_max_deg) * 0.5f; // Start mid position
-
   // Cached values used in update function
   pistonBaseDistance_sq = pistonBaseDistance * pistonBaseDistance;
   pistonEndDistance_sq = pistonEndDistance * pistonEndDistance;
   pistonBaseEnd_2ab = 2 * pistonBaseDistance * pistonEndDistance;
+
+  // Set initial target angle to mid position and calculate corresponding target length
+  setTargetAngle((angle_min_deg + angle_max_deg) * 0.5f);
 }
 
 // Initializes the rotary encoder and loads offset from EEPROM
@@ -81,7 +82,9 @@ float Joint::calculateJointAngle(const float pistonLength) const {
   const float b = pistonEndDistance;
   const float c = pistonLength;
 
-  const float cosTriangleAngle = (a * a + b * b - c * c) / (2 * a * b);
+  float cosTriangleAngle = (a * a + b * b - c * c) / (2 * a * b);
+  // Clamp to valid range for acos to handle floating-point errors
+  cosTriangleAngle = constrain(cosTriangleAngle, -1.0f, 1.0f);
   const float triangleAngleRad = acos(cosTriangleAngle);
   const float triangleAngle = triangleAngleRad * RadToDeg;
 
@@ -140,16 +143,29 @@ void Joint::update() {
   // PID control to get desired piston velocity
   float error = targetLength - currentPistonLength;
 
-  // Deadband: reset integral when very close to target (prevents lingering)
-  constexpr float deadband = 0.001f; // 1mm tolerance
-  if (abs(error) < deadband) {
-      integralError = 0;
-      error = 0; // Stop control signal completely within deadband
-  }
-
+  // Calculate derivative BEFORE applying deadband (to preserve proper derivative calculation)
   const float derivative = (error - previousError) / deltaTime;
 
+  // Deadband: reset integral and zero output when very close to target (prevents lingering)
+  constexpr float deadband = 0.001f; // 1mm tolerance
+  bool withinDeadband = abs(error) < deadband;
+
+  if (withinDeadband) {
+      integralError = 0;
+  }
+
+  // Detect error sign change (crossing target) - aggressively reduce integral
+  const bool errorSignChanged = (previousError * error) < 0;
+  if (errorSignChanged) {
+      integralError *= 0.3f;  // Reduce integral to 30% when crossing target
+  }
+
   float pidOutput = kP * error + kI * integralError + kD * derivative;
+
+  // Zero output if within deadband
+  if (withinDeadband) {
+      pidOutput = 0;
+  }
 
   // Anti-windup: integrate if not saturated, OR if integrating would reduce saturation
   const bool saturatedHigh = pidOutput > 1.0;
@@ -158,8 +174,10 @@ void Joint::update() {
                          (saturatedHigh && error < 0) ||
                          (saturatedLow && error > 0);
 
-  if (shouldIntegrate && abs(error) >= deadband) {
+  if (shouldIntegrate && !withinDeadband) {
       integralError += error * deltaTime;
+      // Clamp integral to prevent excessive windup
+      integralError = constrain(integralError, -integralMax, integralMax);
   }
 
   // Clamp output to valve range
