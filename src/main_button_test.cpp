@@ -33,17 +33,17 @@ constexpr uint8_t BTN_VALVE_SELECT = 4; // Valve select button (cycles through j
 #else
 // ---- DIRECT BUTTON MODE ----
 // Button pins - one pair per valve (8 buttons total)
-constexpr uint8_t J0_BTN_EXTEND = 2;
-constexpr uint8_t J0_BTN_RETRACT = 3;
+constexpr uint8_t J0_BTN_EXTEND = 6;
+constexpr uint8_t J0_BTN_RETRACT = 7;
 
 constexpr uint8_t J1_BTN_EXTEND = 4;
 constexpr uint8_t J1_BTN_RETRACT = 5;
 
-constexpr uint8_t J2_BTN_EXTEND = 6;
-constexpr uint8_t J2_BTN_RETRACT = 7;
+constexpr uint8_t J2_BTN_EXTEND = 2;
+constexpr uint8_t J2_BTN_RETRACT = 3;
 
-constexpr uint8_t J3_BTN_EXTEND = 8;
-constexpr uint8_t J3_BTN_RETRACT = 9;
+constexpr uint8_t J3_BTN_EXTEND = 9;
+constexpr uint8_t J3_BTN_RETRACT = 8;
 
 #endif
 

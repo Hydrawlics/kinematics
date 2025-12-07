@@ -60,9 +60,10 @@ private:
   float angle_min_deg;
   float angle_max_deg;
 
-  float kP = 2.0f;
-  float kI = 0.05f;
-  float kD = 2.0f;
+  float kP = 0.8f;
+  float kI = 0.003f;  // Reduced from 0.005 to prevent excessive integral buildup
+  float kD = 2.3f;
+  float integralMax = 50.0f;  // Maximum integral term value to prevent windup
 
   // PID state
   float integralError = 0;

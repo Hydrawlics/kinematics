@@ -470,7 +470,8 @@ void ArmController::printJointAngles() {
     if (millis() - lastAnglePrintTime >= 100) {
         lastAnglePrintTime = millis();
 
-        // Format: J0: raw(joint), J1: raw(joint), ...
+        Serial.print(millis()); Serial.print(" ");
+        // Format: J0: raw(current)[target], J1: raw(current)[target], ...
         for (int i = 0; i < 4; i++) {
             Serial.print("J");
             Serial.print(i);
@@ -478,7 +479,9 @@ void ArmController::printJointAngles() {
             Serial.print(j[i]->getRawEncoderAngleDeg(), 1);
             Serial.print("(");
             Serial.print(j[i]->getCurrentAngleDeg(), 1);
-            Serial.print(")");
+            Serial.print(")[");
+            Serial.print(j[i]->getTargetAngleDeg(), 1);
+            Serial.print("]");
             if (i < 3) {
                 Serial.print(", ");
             }
