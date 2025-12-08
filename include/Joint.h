@@ -85,7 +85,7 @@ private:
   bool sensorErrorState = false;
 
   // Rate-of-change limit (degrees per millisecond)
-  static constexpr float MAX_ANGLE_RATE = 0.5f;  // 0.5 deg/ms = 500 deg/s (physical limit)
+  static constexpr float MAX_ANGLE_RATE = 4.0f;  // 4.0 deg/ms = 4000 deg/s (relaxed for EMI tolerance)
   static constexpr uint16_t MAX_CONSECUTIVE_BAD_READS = 10;  // Trigger error state after this many failures
 
   /* Cached values, used repeatedly in calculations */

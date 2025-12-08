@@ -177,14 +177,7 @@ void Joint::update() {
     }
   }
 
-#ifdef VERBOSE
-  Serial.print("[Joint] currentAngle:");
-  Serial.print(currentAngleDeg);
-  Serial.print(" targetAngle:");
-  Serial.print(targetAngleDeg);
-  Serial.print(" valid:");
-  Serial.println(angleIsValid ? "Y" : "N");
-#endif
+  // [Joint] angle debug removed - too verbose
 
   // --- Step 3: Calculate target piston length for desired angle ---
   const float currentPistonLength = calculatePistonLength(currentAngleDeg); // Changes all the time
@@ -242,16 +235,7 @@ void Joint::update() {
 
   lastPID = pidOutput;
 
-#ifdef VERBOSE
-  Serial.print("[Joint] pid:");
-  Serial.print(pidOutput);
-  Serial.print(" integral:");
-  Serial.print(integralError);
-  Serial.print(" currentLength:");
-  Serial.print(currentPistonLength, 6);
-  Serial.print(" targetLength: ");
-  Serial.println(targetLength, 6);
-#endif
+  // [Joint] PID debug removed - too verbose
   previousError = error;
 
   lastUpdate = millis();
@@ -325,6 +309,7 @@ void Joint::setOffsetToCurrentPhysicalRotation(const float currentPhysicalRotati
 
 bool Joint::isAtTarget(const float degreeTolerance) const {
   const float angleDiff = abs(targetAngleDeg - currentAngleDeg);
+
   return angleDiff <= degreeTolerance;
 }
 

@@ -57,6 +57,16 @@ uint16_t RotaryEncoder::readRawAngleRegister(bool &success) {
     success = false;
     uint16_t angle = 0;
 
+    // If too many consecutive errors, try to recover the I2C bus
+    if (_consecutiveErrors >= 10) {
+        Wire.end();
+        delayMicroseconds(500);
+        Wire.begin();
+        Wire.setClock(50000);  // Match main.cpp I2C clock speed
+        Wire.setWireTimeout(3000, true);
+        _consecutiveErrors = 0;  // Reset after bus recovery attempt
+    }
+
     // Retry loop for EMI resilience
     for (uint8_t attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (attempt > 0) {

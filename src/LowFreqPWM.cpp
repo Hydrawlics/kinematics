@@ -37,10 +37,14 @@ void LowFreqPWM::setDutyCycle(const uint8_t dc) {
     #ifdef VERBOSE
     // notify if clamped, and verbose
     if (dutyCycle != dc) {
-      Serial.print(" c ");
-      Serial.print(dc);
-      Serial.print(" => ");
-      Serial.print(dutyCycle);
+      static unsigned long lastClampDebug = 0;
+      if (millis() - lastClampDebug >= 1000) {  // 1 second debounce
+        lastClampDebug = millis();
+        Serial.print(" c ");
+        Serial.print(dc);
+        Serial.print(" => ");
+        Serial.print(dutyCycle);
+      }
     }
     #endif
   }
@@ -52,11 +56,16 @@ void LowFreqPWM::update() {
   const unsigned long onTime = (period * dutyCycle) / 100;
 
   #ifdef VERBOSE
-  Serial.print(elapsed);
-  Serial.print(" ");
-  Serial.print(onTime);
-  Serial.print(" ");
-  Serial.println(dutyCycle);
+  // Debounce PWM debug output
+  static unsigned long lastPWMDebug = 0;
+  if (millis() - lastPWMDebug >= 1000) {  // 1 second debounce
+    lastPWMDebug = millis();
+    Serial.print(elapsed);
+    Serial.print(" ");
+    Serial.print(onTime);
+    Serial.print(" ");
+    Serial.println(dutyCycle);
+  }
   #endif
 
   const bool shouldBeOn = (elapsed < onTime) && (dutyCycle > 0);
