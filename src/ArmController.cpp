@@ -77,13 +77,14 @@ ArmController::ArmController(Joint* j0, Joint* j1, Joint* j2, Joint* j3): j{j0, 
     a3 = 0.320f;
     endEffectorMagnitude = 0.07f;
 
-    // Default drawing space offset from Unity simulation
-    drawSpaceOffset = Vector3(0.3425f, 0, 0.1632f);
+    // Drawing space offset based on physical constraints
+    // X: 340mm forward (moved 60mm closer), Z: 8×14.211mm = 113.688mm to the left
+    drawSpaceOffset = Vector3(0.36f, 0, 0.11);
 
     // Initialize state
     currentPosition = Vector3(0, 0, 0);
     absoluteMode = true;  // G90 by default
-    jointAngleTolerance = 2.0f;
+    jointAngleTolerance = 1.5f;  // Matches PID deadband (~1mm ≈ 1-2° angular error)
     debugEnabled = false;
 }
 
@@ -110,7 +111,14 @@ void ArmController::setAbsoluteMode(const bool absolute) {
 
 void ArmController::debugLog(const String& message) const {
     if (debugEnabled) {
-        Serial.println(message);
+        // Debounce debug messages to prevent serial spam
+        static unsigned long lastDebugTime = 0;
+        const unsigned long DEBUG_INTERVAL = 200; // 200ms between debug messages
+
+        if (millis() - lastDebugTime >= DEBUG_INTERVAL) {
+            lastDebugTime = millis();
+            Serial.println(message);
+        }
     }
 }
 
@@ -290,9 +298,48 @@ void ArmController::processGCodeCommand(const GCodeCommand& cmd) {
 
     if (angles.valid) {
         applyJointAngles(angles);
+        // Print target angles (from IK) and current angles (measured)
+        Serial.print("TARGET: Base=");
+        Serial.print(angles.baseRotation, 1);
+        Serial.print(" J1=");
+        Serial.print(angles.joint1Angle, 1);
+        Serial.print(" J2=");
+        Serial.print(angles.joint2Angle, 1);
+        Serial.print(" J3=");
+        Serial.println(angles.joint3Angle, 1);
+
+        Serial.print("CURRENT: Base=");
+        Serial.print(j[0]->getCurrentAngleDeg(), 1);
+        Serial.print(" J1=");
+        Serial.print(j[1]->getCurrentAngleDeg(), 1);
+        Serial.print(" J2=");
+        Serial.print(j[2]->getCurrentAngleDeg(), 1);
+        Serial.print(" J3=");
+        Serial.println(j[3]->getCurrentAngleDeg(), 1);
+
         debugLog("IK Success - Angles applied to joints");
     } else {
-        debugLog("IK Failed - Position unreachable");
+        // FIXED: When IK fails, maintain current target instead of leaving arm stuck
+        // This prevents the system from blocking when unreachable coordinates are sent
+        Serial.println("TARGET: IK_FAILED");
+        Serial.print("CURRENT: Base=");
+        Serial.print(j[0]->getCurrentAngleDeg(), 1);
+        Serial.print(" J1=");
+        Serial.print(j[1]->getCurrentAngleDeg(), 1);
+        Serial.print(" J2=");
+        Serial.print(j[2]->getCurrentAngleDeg(), 1);
+        Serial.print(" J3=");
+        Serial.println(j[3]->getCurrentAngleDeg(), 1);
+        debugLog("IK Failed - Position unreachable, keeping current target");
+
+        // Set target to current position to unblock queue
+        // This allows the system to continue accepting commands instead of waiting forever
+        targetAngles.baseRotation = j[0]->getCurrentAngleDeg();
+        targetAngles.joint1Angle = j[1]->getCurrentAngleDeg();
+        targetAngles.joint2Angle = j[2]->getCurrentAngleDeg();
+        targetAngles.joint3Angle = j[3]->getCurrentAngleDeg();
+        targetAngles.valid = true;
+        applyJointAngles(targetAngles);
     }
 #endif
 }
@@ -392,6 +439,11 @@ JointAngles ArmController::calculateInverseKinematics(const Vector3& position) c
     result.joint1Angle = theta_2 - 90.0f;
     result.joint2Angle = theta_3;
     result.joint3Angle = (180.0f - phi_1 - phi_2) - phi_3;
+
+    // Normalize base rotation to -180 to 180 range
+    while (result.baseRotation > 180.0f) result.baseRotation -= 360.0f;
+    while (result.baseRotation < -180.0f) result.baseRotation += 360.0f;
+
     result.valid = true;
 
     debugLog("Phi_1: " + floatToString(phi_1, 2) + "° Phi_2: " + floatToString(phi_2, 2) +
@@ -465,9 +517,38 @@ void ArmController::applyJointAngles(const JointAngles& angles) {
     j[3]->setTargetAngle(angles.joint3Angle);
 }
 
+Vector3 ArmController::calculateForwardKinematics() const {
+    // Get current joint angles (in degrees)
+    const float base = j[0]->getCurrentAngleDeg();
+    const float j1 = j[1]->getCurrentAngleDeg();
+    const float j2 = j[2]->getCurrentAngleDeg();
+    const float j3 = j[3]->getCurrentAngleDeg();
+
+    // Convert to radians for calculation
+    const float baseRad = base * (M_PI / 180.0f);
+    const float j1Rad = j1 * (M_PI / 180.0f);
+    const float j2Rad = j2 * (M_PI / 180.0f);
+    const float j3Rad = j3 * (M_PI / 180.0f);
+
+    // Forward kinematics - calculate end effector position
+    // Using the same transformations as inverse kinematics but in reverse
+
+    // Calculate reach in XZ plane (horizontal)
+    const float reach = a2 * cos(j1Rad) + a3 * cos(j1Rad + j2Rad) + endEffectorMagnitude * cos(j1Rad + j2Rad + j3Rad);
+
+    // Calculate height (Y)
+    const float height = a1 + a2 * sin(j1Rad) + a3 * sin(j1Rad + j2Rad) + endEffectorMagnitude * sin(j1Rad + j2Rad + j3Rad);
+
+    // Calculate X and Z from base rotation and reach
+    const float x = reach * sin(baseRad);
+    const float z = reach * cos(baseRad);
+
+    return Vector3(x, height, z);
+}
+
 void ArmController::printJointAngles() {
-    // Print raw encoder angles and joint angles at 10Hz (every 100ms)
-    if (millis() - lastAnglePrintTime >= 100) {
+    // Print joint angles and perceived position every 500ms
+    if (millis() - lastAnglePrintTime >= 500) {
         lastAnglePrintTime = millis();
 
         Serial.print(millis()); Serial.print(" ");
@@ -486,6 +567,17 @@ void ArmController::printJointAngles() {
                 Serial.print(", ");
             }
         }
+
+        // Calculate and print perceived position from forward kinematics
+        Vector3 pos = calculateForwardKinematics();
+        Serial.print(" | Pos: X=");
+        Serial.print(pos.x * 1000, 1); // Convert to mm
+        Serial.print("mm Y=");
+        Serial.print(pos.y * 1000, 1);
+        Serial.print("mm Z=");
+        Serial.print(pos.z * 1000, 1);
+        Serial.print("mm");
+
         Serial.println();
     }
 }
@@ -493,7 +585,7 @@ void ArmController::printJointAngles() {
 void ArmController::printPistonLengths() {
     // Print calculated piston lengths at 10Hz (every 100ms)
     static unsigned long lastPistonPrintTime = 0;
-    if (millis() - lastPistonPrintTime >= 100) {
+    if (millis() - lastPistonPrintTime >= 500) {
         lastPistonPrintTime = millis();
 
         // Format: P0: length, P1: length, ...

@@ -7,10 +7,11 @@
 #define SELFTEST_ON_START 1          // Run relay polarity test at startup (disable after confirmed)
 #define RELAY_ACTIVE_LOW true // Set false if relay board is active-HIGH (depends on module type)
 //#define VERBOSE                      // NOTE! Breaks communications with the python script. For debugging only when not communicating with flask
-#define SLOW
+//#define SLOW
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <avr/wdt.h>  // Watchdog timer for I2C hang recovery
 
 #include "Joint.h"
 #include "PumpManager.h"
@@ -74,8 +75,12 @@ LiquidCrystal_I2C lcd(LCD_ADDR, 16, 2);
 PumpManager pumpMgr;
 GCodeCommandQueue gcodeQueue;
 
+// Immediate mode: when true, movement commands clear queue and override current target
+// Enable with M1000, disable with M1001
+bool immediateMode = false;
+
 // Calibration button state tracking
-volatile bool buttonPressed = false;
+volatile bool buttonPressed = false;  // FIXED: Made volatile for ISR safety
 unsigned long buttonPressStartTime = 0;
 constexpr unsigned long CALIBRATION_HOLD_TIME_MS = 1000; // Hold button for 1 second to calibrate
 bool calibrationTriggered = false;
@@ -93,7 +98,7 @@ Joint j0({
   0.16014, 65.314,   // base distance and angle - Defined the same way as j1!
   0.0703, 0,   // end distance and angle
   PISTON1_LEN_MIN, PISTON1_LEN_MAX,
-  false,  // invertPistonLengthRelationship
+  true,  // invertPistonLengthRelationship
   false   // invertEncoderDirection
 });
 // Base-arm joint; Lifts the whole arm, first joint in arm
@@ -135,6 +140,11 @@ void setup() {
   SerialCom::connected();
 
   Wire.begin();  // Initialize I2C for rotary encoders and LCD
+  Wire.setClock(50000);  // Reduce I2C clock to 50kHz for better EMI resistance
+  Wire.setWireTimeout(3000, true);  // 3ms timeout with auto-reset
+
+  // Enable watchdog timer for auto-recovery from I2C hangs (2 second timeout)
+  wdt_enable(WDTO_2S);
 
 #ifdef LCD
   lcd.init(); lcd.backlight(); lcd.createChar(DEG_CHAR, degreeGlyph);
@@ -150,14 +160,25 @@ void setup() {
 
   armController.getStoredOffsets();
 
-  //apply default position
-  JointAngles initialPosition = JointAngles();
-  initialPosition.baseRotation = 0;
-  initialPosition.joint1Angle = -29;
-  initialPosition.joint2Angle = -104;
-  initialPosition.joint3Angle = 60;
-  initialPosition.valid = true;
-  armController.applyJointAngles(initialPosition);
+  // Apply default position using 3D coordinates and IK
+  // Coordinate system: X+ = forward (away from base), Y+ = up, Z+ = left
+  // Position: 43cm forward, 10cm up, centered (0 sideways)
+  Vector3 initialPosition3D(0.43f, 0.10f, 0.0f);  // X, Y, Z in meters
+  JointAngles initialPosition = armController.moveToWorldSpace(initialPosition3D);
+
+  if (initialPosition.valid) {
+    armController.applyJointAngles(initialPosition);
+  } else {
+    Serial.println("Warning: Initial position not reachable, using fallback angles");
+    // Fallback to known good position
+    initialPosition = JointAngles();
+    initialPosition.baseRotation = 0;
+    initialPosition.joint1Angle = -29;
+    initialPosition.joint2Angle = -104;
+    initialPosition.joint3Angle = 60;
+    initialPosition.valid = true;
+    armController.applyJointAngles(initialPosition);
+  }
 
   attachInterrupt(digitalPinToInterrupt(CALIBRATION_BUTTON), calibrateBtnInterrupt, FALLING);
 
@@ -167,6 +188,22 @@ void setup() {
 
 //  Loop() - Equivalent to Update() in Unity
 void loop() {
+  // Reset watchdog timer to prevent auto-reset (must be called every loop)
+  wdt_reset();
+
+  // FIXED: Detect millis() corruption from EMI (sanity check)
+  static unsigned long lastMillis = 0;
+  unsigned long now = millis();
+  if (now < lastMillis && (lastMillis - now) > 100) {
+    // millis() went backwards significantly - likely EMI corruption
+    // Force a controlled reset rather than undefined behavior
+    Serial.println("ERR: millis() corruption detected, resetting...");
+    delay(100);  // Give time for message to send
+    wdt_enable(WDTO_15MS);  // Set shortest watchdog
+    while(1);  // Wait for watchdog reset
+  }
+  lastMillis = now;
+
   // -- COLD CALLS; unlikely to actually do something (requires a button press, etc) --
   // Handle calibration request from interrupt
   calibrateIfFlag();
@@ -216,6 +253,7 @@ void calibrateIfFlag() {
 
       // LED fade indication (~2 seconds)
       for (int i = 0; i < 1000; i++) {
+        wdt_reset();  // FIXED: Feed watchdog during long delay to prevent timeout
         float brightnessAmplitude = abs(sin(i * ((2 * M_PI) / 1000)));
         analogWrite(STATUS_LED, static_cast<int>(brightnessAmplitude * 255));
         delay(1);
@@ -269,10 +307,31 @@ void serialRead() {
     String line = SerialCom::readLine();
     if (line.length() == 0) return;
 
+    // Check for immediate mode control commands
+    if (line.startsWith("M1000")) {
+      immediateMode = true;
+      gcodeQueue.clear();  // Clear any pending commands
+      Serial.println("Immediate mode enabled - targets will override immediately");
+      SerialCom::ok(calculateChecksum(line));
+      lastSentReady = false;
+      return;
+    } else if (line.startsWith("M1001")) {
+      immediateMode = false;
+      Serial.println("Immediate mode disabled - normal queued operation");
+      SerialCom::ok(calculateChecksum(line));
+      lastSentReady = false;
+      return;
+    }
+
     // Parse and enqueue GCode command
     GCodeCommand cmd;
     switch (armController.parseGCodeLine(line, cmd)) {
       case GCodeParseResult::Success:
+        // In immediate mode, clear queue before adding movement commands
+        if (immediateMode && (cmd.commandType == "G0" || cmd.commandType == "G1")) {
+          gcodeQueue.clear();
+        }
+
         if (gcodeQueue.enqueue(cmd)) {
           SerialCom::ok(calculateChecksum(line));
         } else {
@@ -294,7 +353,15 @@ void serialRead() {
 
 //  Process commands from the queue
 void processCommandQueue() {
-  if (!gcodeQueue.isEmpty() && armController.isAtTarget()) {
+  // In immediate mode, execute commands right away without waiting for target
+  // In normal mode, wait for arm to reach target before executing next command
+  const bool shouldProcess = !gcodeQueue.isEmpty() && (immediateMode || armController.isAtTarget());
+
+  if (shouldProcess) {
+#ifdef VERBOSE
+    if (armController.isAtTarget()) {Serial.println("Is at target! Moving to next point."); }
+#endif
+
     GCodeCommand cmd;
     if (gcodeQueue.dequeue(cmd)) {
       armController.processGCodeCommand(cmd);

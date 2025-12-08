@@ -148,6 +148,7 @@ public:
     JointAngles calculateJointAngles(const Vector3& position) const;
     JointAngles moveToDrawingSpace(const Vector3& gCodePos) const;
     JointAngles moveToWorldSpace(const Vector3& worldPos) const;
+    Vector3 calculateForwardKinematics() const;  // Calculate position from current joint angles
 
     // State getters
     Vector3 getCurrentPosition() const { return currentPosition; }

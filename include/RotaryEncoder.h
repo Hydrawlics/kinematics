@@ -32,8 +32,16 @@ public:
 
     /*
      * Returns the angle in degrees (0–360), including stored offset.
+     * Sets isValid to false if I2C read failed after retries.
      */
-    float getAngleDeg();
+    float getAngleDeg(bool &isValid);
+
+    /*
+     * Returns error statistics for diagnostics.
+     */
+    uint16_t getConsecutiveErrors() const;
+    uint16_t getTotalErrors() const;
+    void resetErrorCounters();
 
     /*
      * Sets the angle offset (in degrees). Positive or negative values allowed.
@@ -59,9 +67,18 @@ private:
     // Offset (in degrees) applied to the angle reading
     float   _offsetDeg;
 
+    // Error tracking for EMI detection
+    uint16_t _consecutiveErrors;
+    uint16_t _totalErrors;
+    float    _lastValidAngle;
+
+    // I2C retry configuration
+    static constexpr uint8_t MAX_RETRIES = 3;
+    static constexpr uint16_t RETRY_DELAY_US = 100;
+
     // Internal helpers
     void     selectTCAChannel() const;
-    uint16_t readRawAngleRegister();
+    uint16_t readRawAngleRegister(bool &success);
 };
 
 #endif // ROTARY_ENCODER_H
