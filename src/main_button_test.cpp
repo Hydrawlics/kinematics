@@ -15,6 +15,7 @@
 #include <Arduino.h>
 #include "LowFreqPWM.h"
 #include "PumpManager.h"
+#include "PinConfig.h"
 
 // ============================
 // MODE CONFIGURATION
@@ -24,32 +25,6 @@
 // #define SELECT_BTN_MODE
 
 #define NUM_VALVES 4  // Number of valves
-
-// ============================
-// PIN CONFIGURATION
-// ============================
-
-// Status LED
-constexpr uint8_t STATUS_LED = 13;
-
-// Pump pin
-constexpr uint8_t PUMP_PIN = 30;
-
-// Relay polarity (from main.cpp)
-constexpr bool RELAY_ACTIVE_LOW = true;
-
-// Joint valve pins
-constexpr uint8_t J0_VALVE_RETRACT = 22;
-constexpr uint8_t J0_VALVE_EXTEND = 23;
-
-constexpr uint8_t J1_VALVE_RETRACT = 24;
-constexpr uint8_t J1_VALVE_EXTEND = 25;
-
-constexpr uint8_t J2_VALVE_RETRACT = 26;
-constexpr uint8_t J2_VALVE_EXTEND = 27;
-
-constexpr uint8_t J3_VALVE_RETRACT = 28;
-constexpr uint8_t J3_VALVE_EXTEND = 29;
 
 // ============================
 // GLOBAL VARIABLES

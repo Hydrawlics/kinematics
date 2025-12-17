@@ -77,10 +77,6 @@ ArmController::ArmController(Joint* j0, Joint* j1, Joint* j2, Joint* j3): j{j0, 
     a3 = 0.320f;
     endEffectorMagnitude = 0.07f;
 
-    // Drawing space offset based on physical constraints
-    // X: 340mm forward (moved 60mm closer), Z: 8×14.211mm = 113.688mm to the left
-    drawSpaceOffset = Vector3(0.36f, 0, 0.11);
-
     // Initialize state
     currentPosition = Vector3(0, 0, 0);
     absoluteMode = true;  // G90 by default

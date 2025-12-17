@@ -5,7 +5,6 @@
 // =====================================================================
 
 #define SELFTEST_ON_START 1          // Run relay polarity test at startup (disable after confirmed)
-#define RELAY_ACTIVE_LOW true // Set false if relay board is active-HIGH (depends on module type)
 //#define VERBOSE                      // NOTE! Breaks communications with the python script. For debugging only when not communicating with flask
 //#define SLOW
 
@@ -13,6 +12,7 @@
 #include <Wire.h>
 #include <avr/wdt.h>  // Watchdog timer for I2C hang recovery
 
+#include "PinConfig.h"
 #include "Joint.h"
 #include "PumpManager.h"
 #include "ArmController.h"
@@ -24,24 +24,6 @@
 #include <LiquidCrystal_I2C.h>
 constexpr uint8_t LCD_ADDR = 0x27; // LCD setup
 #endif
-
-constexpr uint8_t STATUS_LED = 13; // 13 has PWM, fancy fading light, internal led
-constexpr uint8_t CALIBRATION_BUTTON = 2;
-constexpr uint8_t PUMP_PIN = 30; // dedicated pump relay pin
-
-// Pin definitions
-constexpr uint8_t J0_VALVE_RETRACT = 22;
-constexpr uint8_t J0_VALVE_EXTEND = 23;
-
-constexpr uint8_t J1_VALVE_RETRACT = 24;
-constexpr uint8_t J1_VALVE_EXTEND = 25;
-
-constexpr uint8_t J2_VALVE_RETRACT = 26;
-constexpr uint8_t J2_VALVE_EXTEND = 27;
-
-constexpr uint8_t J3_VALVE_RETRACT = 28;
-constexpr uint8_t J3_VALVE_EXTEND = 29;
-
 
 // Piston Lengths (used in Joints to calculate angles)
 // the only piston type we have as of now
@@ -97,7 +79,7 @@ Joint j0({
   J0_VALVE_EXTEND, J0_VALVE_RETRACT, 2,
   0.16014, 65.314,   // base distance and angle - Defined the same way as j1!
   0.0703, 0,   // end distance and angle
-  PISTON1_LEN_MIN, PISTON1_LEN_MAX,
+  0.1300, PISTON1_LEN_MAX,
   true,  // invertPistonLengthRelationship
   false   // invertEncoderDirection
 });
@@ -106,7 +88,7 @@ Joint j1({
   J1_VALVE_EXTEND, J1_VALVE_RETRACT, 3,
   0.111, 79.21,   // base distance and angle (79.21 because has an offset to the left of straight up that is 79.21)
   0.070, 0,   // end distance and angle (0 because straight up)
-  PISTON1_LEN_MIN, PISTON1_LEN_MAX,
+  0.1340, PISTON1_LEN_MAX,
   false,  // invertPistonLengthRelationship
   false   // invertEncoderDirection
 });
@@ -115,7 +97,7 @@ Joint j2({
   J2_VALVE_EXTEND, J2_VALVE_RETRACT, 4,
   0.050, -180,   // base distance and angle
   0.151, 0,   // end distance and angle
-  PISTON1_LEN_MIN, PISTON1_LEN_MAX,
+  0.1330, PISTON1_LEN_MAX,
   false,  // invertPistonLengthRelationship
   true // invertEncoderDirection - try without encoder inversion
 });
@@ -133,7 +115,8 @@ ArmController armController(&j0, &j1, &j2, &j3);
 
 
 
-//  Setup() - Equivalent to Start() in Unity
+//  Setup() - Equivalent to Start() in Unity. Note! Restart when new serial connection is established,
+// so this is in practice the same as saying onSerialConnect()
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(500);

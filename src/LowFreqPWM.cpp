@@ -43,7 +43,7 @@ void LowFreqPWM::setDutyCycle(const uint8_t dc) {
         Serial.print(" c ");
         Serial.print(dc);
         Serial.print(" => ");
-        Serial.print(dutyCycle);
+        Serial.println(dutyCycle);
       }
     }
     #endif

@@ -167,8 +167,9 @@ private:
     float inputValueMultiplier = 1; // for translation from millimeters and such
     // default expected input is meters, hence 1
 
-    // Drawing space configuration
-    Vector3 drawSpaceOffset;
+    // Drawing space offset based on physical constraints
+    // X: 340mm forward (moved 60mm closer), Z: 8×14.211mm = 113.688mm to the left
+    Vector3 drawSpaceOffset = Vector3(0.32f, 0, 0.10);
 
     // G-Code state
     Vector3 currentPosition;
